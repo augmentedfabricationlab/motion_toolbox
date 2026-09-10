@@ -1,0 +1,14 @@
+{
+  "result": "passed",
+  "source_classes": [
+    "MobileRobot",
+    "MultiTool"
+  ],
+  "checked": [
+    "URDF export",
+    "active TCP",
+    "arm calibration and lift",
+    "attached mesh collision",
+    "rotated tool pose"
+  ]
+}

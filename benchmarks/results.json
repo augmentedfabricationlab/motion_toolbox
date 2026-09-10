@@ -1,0 +1,53 @@
+{
+  "python": "3.9.13",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "numpy": "2.0.2",
+  "note": "Synthetic graph-only benchmark. No IK, collision or real robot timing. Memory is tracemalloc peak.",
+  "cases": [
+    {
+      "targets": 100,
+      "candidates": 8,
+      "implicit": {
+        "cost": 164.20844437778692,
+        "median_seconds": 0.003726500000000077,
+        "peak_python_bytes": 61294
+      },
+      "networkx": {
+        "cost": 164.20844437778692,
+        "median_seconds": 0.028873600000000055,
+        "peak_python_bytes": 3191336
+      },
+      "speedup": 7.74818194015818
+    },
+    {
+      "targets": 100,
+      "candidates": 32,
+      "implicit": {
+        "cost": 114.2017567936063,
+        "median_seconds": 0.009410599999999825,
+        "peak_python_bytes": 255086
+      },
+      "networkx": {
+        "cost": 114.2017567936063,
+        "median_seconds": 0.5369202000000004,
+        "peak_python_bytes": 46310536
+      },
+      "speedup": 57.05483178543455
+    },
+    {
+      "targets": 200,
+      "candidates": 48,
+      "implicit": {
+        "cost": 209.00465130840766,
+        "median_seconds": 0.0563305999999999,
+        "peak_python_bytes": 540654
+      },
+      "networkx": {
+        "cost": 209.00465130840766,
+        "median_seconds": 1.7160700000000002,
+        "peak_python_bytes": 216086556
+      },
+      "speedup": 30.464259212577236
+    }
+  ]
+}

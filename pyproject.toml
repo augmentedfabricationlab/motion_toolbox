@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motion-toolbox"
+version = "0.1.0"
+description = "Numeric IK, collision checking, static and mobile motion planning"
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+collision = ["pybullet>=3.2.6"]
+compas = ["compas-fab>=1.0,<2"]
+test = ["pytest>=7", "pybullet>=3.2.6", "compas-fab>=1.0,<2"]
+
+[project.scripts]
+motion-plan = "motion_toolbox.utilities.static_planning:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

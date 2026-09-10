@@ -1,0 +1,5 @@
+{
+  "random_poses_checked": 100,
+  "source_json_targets_checked": 100,
+  "result": "Original IK candidates preserved; FK wrist correction separately round-trip tested."
+}
