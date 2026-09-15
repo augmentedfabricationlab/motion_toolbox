@@ -10,6 +10,41 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.8 - 2026-09-15
+
+- Speed up minimum-cost graph search by checking transitions in stable cost
+  order and stopping at the first valid predecessor. Preserve selected paths,
+  costs, tie ordering, and full collision sampling for selected transitions.
+  Exact path-count mode still evaluates all admissible transitions.
+- Batch nested recording writes, retaining every step, event and metric.
+  Root call boundaries and run close force commits; interrupted processes may
+  lose the current in-flight batch. Version and loaded-code fingerprints remain.
+- Reuse region standoff and mounting calculations without changing candidate
+  planes or ordering. Avoid repeated target matrices and base-state prefixes.
+- Filter distant static-body/obstacle pairs with conservative current bounding
+  boxes before Bullet distance queries, preserving collision results/clearance.
+- Refresh cached Grasshopper planner and recording modules on recompute.
+  No new inputs or dependencies.
+- Validation: 176 tests passed, including two new bounding-box equivalence cases;
+  174 tests were also exercised with automatic recording enabled;
+  reproducible benchmarks against `4ef10ee` verify
+  exact graph/region parity and equal recording row counts. Synthetic graph and
+  PyBullet transition workloads improved about 24x and 80x; recording about 7.7x,
+  base-body collision checks about 9.8x, region generation about 1.3x.
+  These are component measurements, not a replay
+  of the corrected full robot scene. See `benchmarks/mobile_performance.json`.
+
+## 0.1.7 - 2026-09-15
+
+Source commit: `4ef10ee`.
+
+- Stop sparse mobile search when a keyframe exhausts its sampled candidate
+  region; skip dense fallback that cannot repair the same empty layer.
+- Generate later regions lazily; distinguish confirmed failures from untested
+  targets using `unchecked_points` and null candidate counts.
+- Normalize signed zero in candidate cache keys without merging nearby poses.
+- Validation at that checkpoint: 152 tests passed.
+
 ## 0.1.6 - 2026-09-15
 
 Source commit: `6350b45`.

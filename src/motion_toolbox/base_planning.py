@@ -479,13 +479,14 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                 total[name] += stats[name]
             for reason, count in stats['rejection_reasons'].items():
                 total['rejection_reasons'][reason] = total['rejection_reasons'].get(reason, 0)+count
+            yaw = math.atan2(base.xaxis[1], base.xaxis[0])
+            base_values = list(base.origin)+[yaw]
             for q in qs:
                 arm_dimension = len(q) if arm_dimension is None else arm_dimension
                 if len(q) != arm_dimension:
                     raise ValueError('IK dimensions must match')
-                yaw = math.atan2(base.xaxis[1], base.xaxis[0])
                 states_at_target.append((q, base))
-                numeric_at_target.append(list(base.origin)+[yaw]+q)
+                numeric_at_target.append(base_values+q)
             if qs:
                 feasible_bases += 1
                 if max_feasible_bases is not None and feasible_bases >= max_feasible_bases:

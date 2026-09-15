@@ -37,7 +37,7 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 4
+RECORDING_VERSION = 5
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
@@ -115,7 +115,15 @@ class ResearchRun:
         self._sources = set()
         self._repositories = {}
         self.started = time.perf_counter_ns()
+        self._last_commit = time.monotonic()
         self._safe(self._open)
+
+    def _flush(self, force=False):
+        """Bound nested-step fsync costs; root calls and close remain durable."""
+        now = time.monotonic()
+        if force or now-self._last_commit >= .5:
+            self.db.commit()
+            self._last_commit = now
 
     def _safe(self, function, *args, **kwargs):
         try:
@@ -429,7 +437,7 @@ class ResearchRun:
                              self.artifact(self._planning_payload(operation, arguments, inputs=True,
                                                                   nested=parent is not None))
                              if parent is None or self.detail else None, None, None))
-            self.db.commit()
+            self._flush(force=parent is None)
         with self.lock:
             self._safe(begin)
         token = _parent.set(step)
@@ -449,7 +457,6 @@ class ResearchRun:
                 self.db.execute('UPDATE steps SET elapsed_ns=?,cpu_ns=?,status=?,output_artifact=?,error_json=? WHERE id=?',
                                 (elapsed, cpu_elapsed, 'error' if error else 'ok', output,
                                  _json(error) if error else None, step))
-                self.db.commit()
                 self.metric('duration', elapsed, 'ns')
                 self.metric('thread_cpu', cpu_elapsed, 'ns')
                 self._result_metrics(result)
@@ -459,7 +466,7 @@ class ResearchRun:
                 with self.lock:
                     self._safe(finish)
                     self.metric('recording_overhead', time.perf_counter_ns()-recording_started-elapsed, 'ns')
-                    self._safe(self.db.commit)
+                    self._safe(self._flush, force=parent is None)
             finally:
                 _parent.reset(token)
 

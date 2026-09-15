@@ -67,7 +67,9 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     regions, body_cache = {}, {}
     def region(target):
         from .stationary_region import StationaryRegion
-        key = as_plane(target).matrix.tobytes()
+        # Input planes remain alive/immutable throughout this invocation.
+        # Avoid reconstructing a 4x4 matrix on every base-candidate lookup.
+        key = id(target)
         if key not in regions:
             regions[key] = StationaryRegion([target], options['ik_solver'].arm_in_base,
                 max_distance=1.75, base_height=height, projected=True)

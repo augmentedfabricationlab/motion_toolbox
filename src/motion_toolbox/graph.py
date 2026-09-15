@@ -153,12 +153,21 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
                 delta[:, periodic] = (delta[:, periodic]+np.pi) % (2*np.pi)-np.pi
                 keep = np.all(np.abs(delta) <= limit, axis=1)
                 indices, delta = indices[keep], delta[keep]
+                values = costs[indices] + np.linalg.norm(delta*w, axis=1)
+                if edge_valid is not None and not count_paths:
+                    # Cost order is exact for a layered DAG: the first valid
+                    # predecessor wins. Stable sorting preserves original ties.
+                    for chosen in np.argsort(values, kind='stable'):
+                        a = int(indices[chosen])
+                        if edge_valid(i, a if i > 0 else -1, b):
+                            next_costs[b], pred[b] = values[chosen], a
+                            break
+                    continue
                 if edge_valid is not None:
                     keep = np.array([edge_valid(i, int(a) if i > 0 else -1, b) for a in indices], dtype=bool)
-                    indices, delta = indices[keep], delta[keep]
+                    indices, values = indices[keep], values[keep]
                 if not len(indices):
                     continue
-                values = costs[indices] + np.linalg.norm(delta*w, axis=1)
                 chosen = int(values.argmin())
                 next_costs[b], pred[b] = values[chosen], indices[chosen]
                 if count_paths:
@@ -177,6 +186,15 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
             delta[..., periodic] = (delta[..., periodic]+np.pi) % (2*np.pi)-np.pi
             values = costs[:, None] + np.linalg.norm(delta*w, axis=2)
             values[np.any(np.abs(delta) > limit, axis=2)] = np.inf
+            if edge_valid is not None and not count_paths:
+                for b in range(len(block)):
+                    for a in np.argsort(values[:, b], kind='stable'):
+                        if not np.isfinite(values[a,b]):
+                            break
+                        if edge_valid(i, int(a) if i > 0 else -1, int(offset+b)):
+                            next_costs[offset+b], pred[offset+b] = values[a,b], a
+                            break
+                continue
             if edge_valid is not None:
                 for a, b in np.argwhere(np.isfinite(values)):
                     if not edge_valid(i, int(a) if i > 0 else -1, int(offset+b)):

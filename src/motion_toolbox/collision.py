@@ -298,8 +298,21 @@ class PybulletServer:
         if clearance < 0 or not math.isfinite(clearance):
             raise ValueError('Clearance must be nonnegative')
         self.set_base(base)
+        # A conservative broadphase avoids a Bullet distance query for every
+        # static link against every environment mesh. Refresh bounds each call
+        # so moved bases, fixed joints and externally moved obstacles stay valid.
+        bounds = {link: self.p.getAABB(self.robot, link) for link in self.static_links}
+        if not bounds:
+            return True
+        combined = (tuple(min(b[0][i] for b in bounds.values()) for i in range(3)),
+                    tuple(max(b[1][i] for b in bounds.values()) for i in range(3)))
         for obstacle_index, (obstacle, ignored) in enumerate(self.environment):
+            obstacle_bounds = self.p.getAABB(obstacle)
+            if not self._bounds_overlap(combined, obstacle_bounds, clearance):
+                continue
             for link in self.static_links - ignored:
+                if not self._bounds_overlap(bounds[link], obstacle_bounds, clearance):
+                    continue
                 if self.p.getClosestPoints(self.robot, obstacle, clearance, linkIndexA=link):
                     self.last_failure = 'base collision: {} / collision_meshes[{}]'.format(
                         self.link_names[link], obstacle_index)

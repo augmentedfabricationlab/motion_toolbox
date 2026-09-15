@@ -21,6 +21,34 @@ def urdf(tmp_path):
     return path
 
 
+@pytest.mark.parametrize('clearance', [0.,.05])
+def test_base_bounds_preserve_collision_results_and_obstacle_movement(urdf,monkeypatch,clearance):
+    monkeypatch.setenv('TOOLBOX_RECORDING','0')
+    with PybulletServer(urdf) as scene:
+        for i in range(42):
+            scene.add_box([.04]*3,plane=Plane((4+i,0,0),(1,0,0),(0,1,0)))
+        scene.add_box([.04]*3,plane=Plane.world_xy())
+        original = scene.p.getClosestPoints
+        calls = []
+        def query(*args,**kwargs):
+            calls.append(1)
+            return original(*args,**kwargs)
+        monkeypatch.setattr(scene.p,'getClosestPoints',query)
+        bases = [Plane((x,0,0),(1,0,0),(0,1,0)) for x in np.linspace(-1,1,31)]
+        filtered = [(scene.is_base_valid(b,clearance=clearance),scene.last_failure) for b in bases]
+        filtered_calls = len(calls)
+        calls.clear()
+        overlap = scene._bounds_overlap
+        monkeypatch.setattr(scene,'_bounds_overlap',lambda *args:True)
+        exhaustive = [(scene.is_base_valid(b,clearance=clearance),scene.last_failure) for b in bases]
+        assert filtered == exhaustive
+        assert filtered_calls < len(calls)/4
+        assert any(not valid for valid,_ in filtered)
+        monkeypatch.setattr(scene,'_bounds_overlap',overlap)
+        scene.p.resetBasePositionAndOrientation(scene.environment[0][0], [1,0,0],[0,0,0,1])
+        assert not scene.is_base_valid(bases[-1],clearance=clearance)
+
+
 @pytest.mark.parametrize('clearance', [0.0, .05])
 def test_environment_bounds_match_unfiltered_queries(urdf, monkeypatch, clearance):
     monkeypatch.setenv('TOOLBOX_RECORDING', '0')

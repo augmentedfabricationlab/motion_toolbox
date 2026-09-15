@@ -288,6 +288,19 @@ The latter accepts lazy candidate layers and optional collision/transition
 callbacks. Run `benchmarks/mobile_benchmark.py` for a synthetic comparison;
 real robot and obstacle timings depend on the scene and candidate count.
 
+Minimum-cost graph search tests transitions in cost order and stops when it
+finds the best valid predecessor. It preserves the same optimum and tie order;
+selected transitions receive the same collision sampling. Exact path-count
+mode still examines all admissible edges. Base-body placement checks skip
+clearly separated link/obstacle pairs using conservative bounding boxes, refreshed
+each call to account for moved geometry. Normal research recording retains
+all rows but batches nested writes at step boundaries (0.5-second checkpoint
+interval), with forced commits at root call boundaries and run close. An
+interrupted process can lose its current uncommitted batch. Package version
+and loaded-code fingerprints remain recorded. Compare these optimizations with
+`python benchmarks/mobile_performance.py --baseline 4ef10ee`; saved component
+measurements are in `benchmarks/mobile_performance.json`.
+
 For target planes to **one stationary footprint plane** in Grasshopper, paste
 [examples/grasshopper_stationary_base.py](examples/grasshopper_stationary_base.py)
 into a Rhino 8 Python 3 component. Connect the ordered target planes and robot.

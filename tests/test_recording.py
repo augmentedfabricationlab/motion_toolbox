@@ -184,6 +184,22 @@ def test_candidate_filter_metrics(tmp_path):
     assert values['collision_seconds'] >= 0
 
 
+def test_nested_steps_batch_commits_and_root_result_is_visible(tmp_path):
+    @recorded
+    def child():
+        return 1
+    @recorded
+    def parent():
+        return sum(child() for _ in range(50))
+    with ResearchRun(tmp_path) as run:
+        commits = []
+        run.db.set_trace_callback(lambda sql: commits.append(sql) if sql == 'COMMIT' else None)
+        assert parent() == 50
+        assert len(commits) < 15  # Previously >150 commits for 50 nested calls.
+        assert len(rows(run, 'SELECT * FROM steps')) == 51
+        assert all(r['status'] == 'ok' for r in rows(run, 'SELECT * FROM steps'))
+
+
 @pytest.mark.parametrize('detail', [False, True])
 def test_planning_recording_omits_generated_arrays_only_in_normal_mode(tmp_path, detail):
     from motion_toolbox.geometry import Plane

@@ -46,6 +46,7 @@ class StationaryRegion:
         if not math.isfinite(max_distance) or max_distance <= 0 or not math.isfinite(base_height):
             raise ValueError('Positive finite maximum distance and finite base height required')
         self.mount = as_plane(arm_in_base)
+        self._mount_matrix = self.mount.matrix
         self.max_distance = max_distance
         self.base_height = base_height
         self.height = base_height + self.mount.origin[2]
@@ -61,7 +62,7 @@ class StationaryRegion:
 
     def metrics(self, base):
         base = as_plane(base)
-        arm = (base.matrix @ self.mount.matrix)[:3, 3]
+        arm = (base.matrix @ self._mount_matrix)[:3, 3]
         delta = arm-self.points
         distances = np.linalg.norm(delta, axis=1)
         projected_distances = np.linalg.norm(delta[:, :2], axis=1)
@@ -166,7 +167,7 @@ class StationaryRegion:
         lower, upper = polygon.min(axis=0), polygon.max(axis=0)
         axes = [np.linspace(a, b, int(math.ceil((b-a)/spacing))+1) for a,b in zip(lower, upper)]
         samples = seed_points + boundary + [np.array((x,y)) for x in axes[0] for y in axes[1]]
-        result, guesses, seen = [], [], set()
+        result, guesses, seen, standoffs = [], [], set(), {}
         for i, point in enumerate(samples):
             arm_xy = point+self.center
             toward = -point
@@ -178,10 +179,12 @@ class StationaryRegion:
                                    s*self.mount.origin[0]+c*self.mount.origin[1]])
                 base = Plane((*(arm_xy-offset), self.base_height), (c,s,0), (-s,c,0))
                 key = tuple(np.round(base.matrix.ravel(), 9))
-                if key not in seen and self.metrics(base)['geometry_valid']:
+                metrics = self.metrics(base) if key not in seen else None
+                if metrics is not None and metrics['geometry_valid']:
                     seen.add(key)
                     result.append(base)
+                    standoffs[id(base)] = metrics['standoff']
                     if i < len(seed_points):
                         guesses.append(base)
-        result.sort(key=lambda base: -self.metrics(base)['standoff'])
+        result.sort(key=lambda base: -standoffs[id(base)])
         return result, guesses, '' if result else 'No sampled footprint satisfies the exact side and distance constraints.'

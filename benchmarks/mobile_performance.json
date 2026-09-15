@@ -1,0 +1,56 @@
+{
+  "baseline": "4ef10ee",
+  "graph_before": {
+    "seconds": 3.7563172,
+    "edge_checks": 36864
+  },
+  "graph_after": {
+    "seconds": 0.15416469999999993,
+    "edge_checks": 1567
+  },
+  "graph_exact_parity": true,
+  "bullet_before": {
+    "seconds": 2.2407633999999996,
+    "edge_checks": 1152
+  },
+  "bullet_after": {
+    "seconds": 0.027939599999999842,
+    "edge_checks": 48
+  },
+  "bullet_exact_parity": true,
+  "base_collision_before": {
+    "seconds": 0.27728790000000014,
+    "queries": 42870
+  },
+  "base_collision_after": {
+    "seconds": 0.02836060000000007,
+    "queries": 24
+  },
+  "base_collision_exact_parity": true,
+  "regions_before": {
+    "seconds": 2.1917526999999994,
+    "planes": 3520
+  },
+  "regions_after": {
+    "seconds": 1.7105756000000003,
+    "planes": 3520
+  },
+  "region_exact_parity": true,
+  "recording_before": {
+    "seconds": 5.205116500000001,
+    "steps": 1001,
+    "events": 1000,
+    "metrics": 14004
+  },
+  "recording_after": {
+    "seconds": 0.6769126000000014,
+    "steps": 1001,
+    "events": 1000,
+    "metrics": 14004
+  },
+  "graph_speedup": 24.36561158293696,
+  "bullet_speedup": 80.20026772036866,
+  "base_collision_speedup": 9.777222625755432,
+  "regions_speedup": 1.2812954306141155,
+  "recording_speedup": 7.689495660148725
+}
