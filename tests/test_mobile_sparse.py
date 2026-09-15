@@ -146,7 +146,7 @@ def test_mobile_json_cannot_disable_robot_collision_checks():
                                ik_solver=lambda t,b:[[0]],collision=lambda q,b:False)
 
 
-def test_fallback_reuses_keyframe_candidates_and_reports_collision_reason():
+def test_impossible_keyframe_stops_without_dense_fallback():
     calls = []
     targets = [plane(i*.01) for i in range(5)]
     def ik(t,b):
@@ -158,10 +158,40 @@ def test_fallback_reuses_keyframe_candidates_and_reports_collision_reason():
             return False
     result = plan_mobile_sparse(targets, [[t] for t in targets], ik_solver=ik,
                                 collision=Collision().valid)
-    assert len(calls) == len(set(calls)) == 5
+    assert len(calls) == 1
     assert not result.base_planes
+    assert result.candidate_counts == [0,None,None,None,None]
+    assert not result.diagnostics[-1]['dense_fallback']
+    assert result.target_diagnostics[1] == {'checked':False}
     assert result.target_diagnostics[0]['raw_ik'] == 1
     assert result.target_diagnostics[0]['rejection_reasons'] == {'self collision: arm / chassis':1}
+
+
+def test_early_failure_maps_original_indices_and_does_not_generate_remaining_regions():
+    targets = [plane(0),plane(.1),plane(.2),plane(.2,.1),plane(.2,.2)]
+    generated = []
+    def layers(i,t):
+        generated.append(i)
+        return [plane(i)]
+    result = plan_mobile_sparse(targets,layers,ik_solver=lambda t,b:[[0]] if t.origin[1] == 0 else [],
+                                max_gap=2)
+    assert result.candidate_counts == [1,None,1,None,0]
+    assert generated == [0,2,4]
+    assert result.diagnostics[-1]['reason'] == 'keyframe_has_no_feasible_candidate'
+
+
+def test_skipped_target_failure_still_uses_dense_fallback_and_cached_candidates():
+    targets = [plane(i*.01) for i in range(5)]
+    calls = []
+    def ik(t,b):
+        key = (tuple(t.origin),tuple(b.origin))
+        calls.append(key)
+        return [[0]]
+    result = plan_mobile_sparse(targets,[[plane(i*.01),plane(i*.01,.1)] for i in range(5)],
+        ik_solver=ik,collision=lambda q,b: not (b.origin[0] == .02 and b.origin[1] == 0))
+    assert len(result.base_planes) == 5
+    assert result.diagnostics[-1]['dense_fallback']
+    assert len(calls) == len(set(calls))
 
 
 def test_mobile_region_uses_calibrated_arm_origin_and_all_original_targets():

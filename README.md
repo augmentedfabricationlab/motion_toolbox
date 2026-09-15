@@ -261,7 +261,14 @@ Interpolation uses monotone projected progress along the simplified XY segments,
 or elapsed time when `time_intervals` is given. Stationary XY segments use index
 progress; small waves and Z oscillation do not accumulate extra base travel.
 Failed full-resolution validation triggers a dense search of the original candidate
-layers. Diagnostics report retained indices, fallback and elapsed time.
+layers. If a keyframe itself exhausts its candidate region without any feasible
+state, the search stops immediately: dense fallback would have the same empty
+layer. Later regions are generated lazily, so they are not searched after that
+failure. `unreachable_points` lists confirmed failed targets; `unchecked_points`
+lists targets whose feasibility remains unknown. Their candidate counts are
+null, not zero. This is infeasibility of the sampled domain, not proof that no
+continuous placement exists. Diagnostics report retained indices, fallback and
+elapsed time. `sparse:false` retains the full-domain diagnostic search.
 
 Sparse mode is an approximate search: its interpolated placements may lie outside
 the discrete offset set and its cost may differ from the full optimum. Use

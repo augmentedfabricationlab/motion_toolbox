@@ -70,7 +70,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 4 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.6':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.7':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -89,7 +89,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 10
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 11
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -173,6 +173,8 @@ try:
     base_result = [to_rhino(p, 1.0/_input('model_units_to_metres', 1.0)) for p in result['base_planes']]
     path_cost = result['path_length']
     unreachable_points = result['unreachable_points']
+    if result.get('unchecked_points'):
+        diagnostics.append('{} targets were not checked after a keyframe exhausted its candidate region; their feasibility is unknown.'.format(len(result['unchecked_points'])))
     timings = result['timings']
     version = result['version']
     for i in unreachable_points:

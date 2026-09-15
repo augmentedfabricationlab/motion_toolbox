@@ -3,7 +3,7 @@ import math
 from time import perf_counter
 import numpy as np
 from .geometry import Plane, as_plane
-from .base_planning import plan_mobile_base
+from .base_planning import BasePlan, plan_mobile_base
 
 
 def mobile_base_seeds(targets, *, distance=1.0, height=0.0):
@@ -96,7 +96,8 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
               plan_mobile_base(targets, [layer(i,t) for i,t in enumerate(targets)], **options))
     return dict(configurations=solved.configurations, base_planes=solved.base_planes,
         path_length=solved.cost, num_nodes_computed=len(targets),
-        unreachable_points=[i for i,n in enumerate(solved.candidate_counts) if not n],
+        unreachable_points=[i for i,n in enumerate(solved.candidate_counts) if n == 0],
+        unchecked_points=[i for i,n in enumerate(solved.candidate_counts) if n is None],
         collision_check_applied=options.get('collision') is not None,
         target_diagnostics=solved.target_diagnostics, mobile_diagnostics=solved.diagnostics,
         ik_solutions_per_node=solved.ik_solutions_per_node,
@@ -286,11 +287,31 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
         # Endpoint joint changes need not satisfy a single original-step bound.
         # Intermediate collisions must be checked along the actual dense path.
         coarse_options = dict(options, max_base_step=None, max_yaw_step=None,
-                              max_joint_step=None, transition_check=None)
+                              max_joint_step=None, transition_check=None, _stop_on_unreachable=True)
         if times is not None:
             coarse_options['time_intervals'] = ([times[0]] if has_start else []) + [
                 float(coordinates[b]-coordinates[a]) for a,b in zip(indices, indices[1:])]
-        proposal = plan_mobile_base([targets[i] for i in indices], [layer(i) for i in indices], **coarse_options)
+        # Lazy layers avoid generating later regions after an impossible keyframe.
+        class KeyframeLayers:
+            def __len__(self):
+                return len(indices)
+            def __iter__(self):
+                return (layer(i) for i in indices)
+        proposal = plan_mobile_base([targets[i] for i in indices], KeyframeLayers(), **coarse_options)
+        if any(n == 0 for n in proposal.candidate_counts):
+            counts = [None]*len(targets)
+            details = [dict(checked=False) for _ in targets]
+            joints = [[] for _ in targets]
+            for j,i in enumerate(indices):
+                counts[i] = proposal.candidate_counts[j]
+                details[i] = proposal.target_diagnostics[j]
+                joints[i] = proposal.ik_solutions_per_node[j]
+            return BasePlan([], [], float('inf'), counts,
+                [dict(mode='sparse', keyframe_indices=indices, dense_fallback=False,
+                      reason='keyframe_has_no_feasible_candidate',
+                      checked_target_count=sum(n is not None for n in counts),
+                      total_seconds=perf_counter()-started, **selection_info)],
+                ik_solutions_per_node=joints, target_diagnostics=details)
         if proposal.base_planes:
             bases = interpolate_bases(indices, proposal.base_planes, coordinates)
             result = plan_mobile_base(targets, [[b] for b in bases], **options)

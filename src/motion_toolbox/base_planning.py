@@ -437,7 +437,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         max_base_step=0.25, max_yaw_step=0.25, max_joint_step=2.5,
         base_weight=1.0, yaw_weight=1.0, joint_weights=None, periodic=None,
         time_intervals=None, max_base_speed=None, max_yaw_speed=None, max_joint_speed=None,
-        _candidate_cache=None, base_valid=None, max_feasible_bases=None):
+        _candidate_cache=None, base_valid=None, max_feasible_bases=None,
+        _stop_on_unreachable=False):
     """Jointly optimize arm configuration and holonomic base pose per TCP target.
 
     Exact over the supplied discretized states, with weighted Euclidean step
@@ -456,7 +457,7 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
     arm_dimension = None
     for target, bases in zip(targets, base_candidates_per_target):
         states_at_target, numeric_at_target = [], []
-        total = dict(raw_ik=0, within_joint_limits=0, collision_free=0, rejection_reasons={})
+        total = dict(checked=True, raw_ik=0, within_joint_limits=0, collision_free=0, rejection_reasons={})
         feasible_bases = 0
         for base in bases:
             base = as_plane(base)
@@ -465,7 +466,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
             if base_valid is not None and not base_valid(target, base):
                 total['rejection_reasons']['base placement region or body collision'] = total['rejection_reasons'].get('base placement region or body collision', 0)+1
                 continue
-            key = (as_plane(target).matrix.tobytes(), base.matrix.tobytes()) if _candidate_cache is not None else None
+            # Normalize signed zero only; do not merge nearby distinct poses.
+            key = ((as_plane(target).matrix+0.).tobytes(), (base.matrix+0.).tobytes()) if _candidate_cache is not None else None
             if _candidate_cache is not None and key in _candidate_cache:
                 qs, stats = _candidate_cache[key]
             else:
@@ -491,6 +493,11 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         states.append(states_at_target)
         numeric.append(numeric_at_target)
         diagnostics.append(total)
+        if not states_at_target and _stop_on_unreachable:
+            missing = len(targets)-len(states)
+            return BasePlan([], [], float('inf'), [len(s) for s in states]+[None]*missing, [],
+                ik_solutions_per_node=[[q for q,b in s] for s in states]+[[] for _ in range(missing)],
+                target_diagnostics=diagnostics+[dict(checked=False) for _ in range(missing)])
     counts = [len(layer) for layer in states]
     joint_layers = [[q for q, base in layer] for layer in states]
     if not all(counts):
