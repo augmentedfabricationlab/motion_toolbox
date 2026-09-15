@@ -1,5 +1,7 @@
 {
   "random_poses_checked": 100,
   "source_json_targets_checked": 100,
+  "urdf_fk_checks": 20,
+  "analytic_frame": "UR controller base to tool0; not URDF base_link to tool0",
   "result": "Original IK candidates preserved; FK wrist correction separately round-trip tested."
 }

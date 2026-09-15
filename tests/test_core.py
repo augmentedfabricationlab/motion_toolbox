@@ -4,6 +4,27 @@ import numpy as np
 import pytest
 from motion_toolbox.geometry import Plane, as_plane
 from motion_toolbox.graph import shortest_path
+
+
+@pytest.mark.parametrize('count_paths', [True, False])
+def test_indexed_path_search_matches_dense_search(count_paths):
+    rng = np.random.default_rng(71)
+    layers = [rng.uniform(-4,4,(70,3)).tolist() for _ in range(3)]
+    mask = np.array([False, True, False])
+    limits = np.array([2.5, 2.5, 2.5])
+    def allowed(i,a,b):
+        return (i+a+b) % 7 != 0
+    def dense_edge(i,a,b):
+        delta = np.array(layers[i][b])-layers[i-1][a]
+        delta[mask] = (delta[mask]+np.pi) % (2*np.pi)-np.pi
+        return bool(np.all(np.abs(delta) <= limits)) and allowed(i,a,b)
+    indexed = shortest_path(layers, max_step=limits, periodic=mask,
+                            edge_valid=allowed, count_paths=count_paths)
+    dense = shortest_path(layers, max_step=None, periodic=mask,
+                          edge_valid=dense_edge, count_paths=count_paths)
+    assert indexed.indices == dense.indices
+    assert indexed.cost == pytest.approx(dense.cost)
+    assert indexed.path_count == dense.path_count
 from motion_toolbox.kinematics.ur import inverse_kinematics, forward_kinematics
 from motion_toolbox.kinematics.solver import URKinematics
 from motion_toolbox.planning import calculate_partial_trajectory, rotation_offsets
@@ -44,6 +65,38 @@ def test_graph_empty_disconnected_periodic_and_first_edge():
     assert result.cost < .1
     assert result.configurations[0][0] > math.pi
     assert not shortest_path([[[0]], [[.1]]], edge_valid=lambda *x: False).configurations
+
+
+@pytest.mark.parametrize('count_paths', [False, True])
+@pytest.mark.parametrize('seeded', [False, True])
+def test_full_turn_index_preserves_bounded_paths(count_paths, seeded):
+    rng = np.random.default_rng(42)
+    physical = rng.uniform(-3.2, 3.2, (12, 3))
+    turns = np.array(list(itertools.product([-2*np.pi, 0, 2*np.pi], repeat=3)))
+    layers = []
+    for i in range(4):
+        layer = (physical[:, None, :] + turns + i*.025).reshape(-1, 3)
+        # Unequal bounds and missing windings must stay respected.
+        layer = layer[np.all((layer >= [-7, -5, -6]) & (layer <= [5, 7, 6]), axis=1)]
+        layers.append(layer[rng.permutation(len(layer))].tolist())
+    options = dict(max_step=[2.5, 1.8, 2.8], weights=[.5, 1, 2],
+                   count_paths=count_paths, start=layers[0][0] if seeded else None)
+    expected = shortest_path(layers, **options)
+    actual = shortest_path(layers, revolute_joints=range(3), **options)
+    assert actual.cost == pytest.approx(expected.cost)
+    assert actual.indices == expected.indices
+    assert actual.path_count == expected.path_count
+
+
+def test_full_turn_index_boundary_and_missing_winding():
+    from motion_toolbox.graph import _winding_layer
+    previous = np.array([[3.14], [3.14-2*np.pi]])
+    current = np.array([[-3.13], [3.15], [9.43]])
+    costs, parents, counts = _winding_layer(previous, current, np.zeros(2), [1, 1],
+                                          np.ones(1), np.array([.2]), True)
+    assert parents[:2].tolist() == [1, 0]
+    assert counts == [1, 1, 0]
+    assert np.isinf(costs[-1])
 
 
 def test_ik_fk_roundtrip_and_nonmutating():

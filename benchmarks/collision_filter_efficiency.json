@@ -1,0 +1,12 @@
+{
+  "unfiltered": {
+    "seconds": 0.32206900000000016,
+    "closest_point_queries": 23364
+  },
+  "filtered": {
+    "seconds": 0.15153039999999995,
+    "closest_point_queries": 1032
+  },
+  "identical_results": true,
+  "scope": "Synthetic single-joint robot, 531 poses, 42 distant boxes and one nearby box, clearance 0.05m; not the actual robot scene."
+}

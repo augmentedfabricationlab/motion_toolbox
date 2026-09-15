@@ -1,6 +1,7 @@
 """Inverse kinematics solver for UR robots.
 This is based on rustr's work, who referenced:
 https://github.com/ros-industrial/universal_robot/tree/hydro-devel/ur_kinematics"""
+from motion_toolbox.recording import recorded
 
 from math import sin, cos, fabs, asin, acos, sqrt, atan2, pi
 from ..geometry import Plane
@@ -153,7 +154,7 @@ def inverse_ros(end_effector_pose, params, q6_des=0.0):
             if fabs(fabs(c3) - 1.0) < ZERO_THRESH:
                 c3 = sign(c3)
             elif fabs(c3) > 1.0:
-                # TODO NO SOLUTION
+                # This branch is outside the arm's geometric reach.
                 continue
 
             arccos = acos(c3)
@@ -282,6 +283,7 @@ def forward_ros(q, ur_params):
     return T
 
 
+@recorded(detail=True)
 def inverse_kinematics(
     plane, ur_params=(0.2363, -0.8620, -0.7287, 0.201, 0.1593, 0.1543), q6_des=0.0
 ):
@@ -333,6 +335,7 @@ def inverse_kinematics(
         return []
 
 
+@recorded(detail=True)
 def forward_kinematics(
     configuration, ur_params=(0.2363, -0.8620, -0.7287, 0.201, 0.1593, 0.1543)
 ):

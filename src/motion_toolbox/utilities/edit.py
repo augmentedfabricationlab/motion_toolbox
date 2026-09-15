@@ -1,4 +1,5 @@
 """Joint representative selection and filtering, without robot network access."""
+from motion_toolbox.recording import recorded
 import math
 import numpy as np
 
@@ -16,6 +17,7 @@ def snap_configuration(configuration, reference, periodic=None):
     return [snap_angle(q, r) if p else float(q) for q, r, p in zip(configuration, reference, mask)]
 
 
+@recorded
 def edit_solutions(layers, reference, *, tolerance=None, periodic=None):
     """Snap allowed revolutions, then filter every constrained joint exactly once."""
     if tolerance is not None and np.any(np.asarray(tolerance) < 0):
@@ -27,6 +29,7 @@ def edit_solutions(layers, reference, *, tolerance=None, periodic=None):
     return output
 
 
+@recorded
 def unwrap_configurations(configurations, reference=None, periodic=None):
     result = []
     for q in configurations:

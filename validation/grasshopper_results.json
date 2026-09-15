@@ -1,0 +1,14 @@
+{
+  "result": "passed",
+  "rhino": "8.30.26103.11001",
+  "components": [
+    "grasshopper.py",
+    "grasshopper_motion_plan.py",
+    "grasshopper_stationary_base.py"
+  ],
+  "branches": 3,
+  "values": 18,
+  "robot_object": true,
+  "pybullet_collision": true,
+  "grasshopper_datatree": true
+}

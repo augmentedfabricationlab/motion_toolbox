@@ -41,7 +41,20 @@ def main():
         flange = Plane.from_matrix(rigid_inverse(base.matrix) @ target.matrix @ rigid_inverse(tool.matrix))
         np.testing.assert_allclose(solver(target, base), legacy['inverse_kinematics'](flange), atol=1e-12)
         count += 1
+    # Verify the convention against the supplied URDF, not just the legacy solver.
+    # UR's controller "base" frame is rotated relative to the URDF root base_link.
+    from compas_robots import RobotModel
+    model = RobotModel.from_urdf_file(str(args.workspace/'slab_net_zero/data/URDF/ur20.urdf'))
+    from motion_toolbox.geometry import as_plane
+    names = model.get_configurable_joint_names()
+    for _ in range(20):
+        q = rng.uniform(-2, 2, 6)
+        state = dict(zip(names, q))
+        base = as_plane(model.forward_kinematics(state, 'base'))
+        tool0 = as_plane(model.forward_kinematics(state, 'tool0'))
+        np.testing.assert_allclose(rigid_inverse(base.matrix) @ tool0.matrix, forward_kinematics(q).matrix, atol=1e-7)
     args.output.write_text(json.dumps(dict(random_poses_checked=checked, source_json_targets_checked=count,
+        urdf_fk_checks=20, analytic_frame='UR controller base to tool0; not URDF base_link to tool0',
         result='Original IK candidates preserved; FK wrist correction separately round-trip tested.'), indent=2))
     print('IK parity: {} synthetic and {} recorded targets passed'.format(checked, count))
 

@@ -1,0 +1,16 @@
+{
+  "samples": 2798,
+  "environment_meshes": 42,
+  "scope": "Archived robot and environment geometry, 16 targets spanning the real path. Attached tool omitted because its geometry was opaque in the old archive.",
+  "after": {
+    "seconds": 2.3912064,
+    "self_pairs": 79,
+    "valid": 1739
+  },
+  "before": {
+    "seconds": 3.4821577999999995,
+    "self_pairs": 236,
+    "valid": 1739
+  },
+  "identical": true
+}
