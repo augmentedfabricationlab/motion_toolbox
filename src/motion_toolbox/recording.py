@@ -37,12 +37,13 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 3
+RECORDING_VERSION = 4
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
 def current_run():
-    return None if _suspended.get() else _active.get()
+    run = _active.get()
+    return None if _suspended.get() or getattr(run, 'closed', False) else run
 
 
 @contextmanager
@@ -298,9 +299,15 @@ class ResearchRun:
                     result = subprocess.run(['git', '-c', 'safe.directory='+str(root), '-C', str(root), *args], capture_output=True,
                                             timeout=5, check=True)
                     return result.stdout
-                git = {'root': str(root), 'commit': command('rev-parse', 'HEAD').decode().strip(),
-                       'status': command('status', '--porcelain').decode(),
-                       'diff_artifact': self.artifact_bytes(command('diff', 'HEAD', '--binary'))}
+                git = {'root': str(root)}
+                try:
+                    git.update(commit=command('rev-parse', 'HEAD').decode().strip(),
+                               status=command('status', '--porcelain').decode(),
+                               diff_artifact=self.artifact_bytes(command('diff', 'HEAD', '--binary')))
+                except (subprocess.SubprocessError, OSError) as error:
+                    # Git metadata is optional. Cache failure once per repository;
+                    # still archive source bytes and loaded-code fingerprints.
+                    git['metadata_error'] = str(error)
                 self._repositories[str(root)] = git
                 # Include unchanged helpers and untracked new modules, not just called files.
                 for module in (root / 'src').rglob('*.py'):

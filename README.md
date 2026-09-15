@@ -176,20 +176,30 @@ checks. This changes query scheduling, not which geometry can reject a pose.
 Use **[examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)**
 as the dedicated base-motion component. Paste it into a Rhino 8 Python 3
 component, with `robot` (Item) and `target_planes` (List, Plane). It generates
-footprint seeds automatically; no component from another repository is needed.
-Optional `seed_base_planes` accepts an existing seed path. Automatic seeds lie
-one metre behind projected TCP +Z, facing the target; vertical normals use
-projected TCP +X. `seed_distance` and `base_height` use the Rhino model units.
-Seeds are proposals, checked using actual robot reach, mounting and collisions.
+footprint candidates from the stationary finder's placement region at each
+target; no external path generator is needed. The calibrated **arm-base origin**
+must be behind projected target +Z and no farther than **1.75 m in XY**.
+Footprint origins account for the mounting offset at each heading. These rules
+also apply to every interpolated target, with actual IK and collisions checked.
+Optional `seed_base_planes` supplies proposals subject to the same rules.
+`grid_spacing` (default 0.5 metre) and `base_height` use Rhino model units;
+`yaw_steps` defaults to four headings per arm-origin candidate.
 
 The main output **`base_planes`** has one footprint plane per original TCP
 target on success. `joint_plan` and named `configurations` also contain the
 validated arm plan. To use a separate arm-planning component, connect
 `base_planes` to `grasshopper.py` with the same targets and robot settings.
-The dedicated component defaults to sparse search, five world XY offsets
-(zero and +/-0.2 metres along each axis), three yaw offsets (0, +/-0.25 radians),
-fixed TCP orientation, and configuration plus sampled transition collision
-checks. `mobile_options` overrides search settings. With `current_pose`, connect
+The dedicated component defaults to sparse search, fixed TCP orientation,
+and configuration plus sampled transition collision checks. Like the stationary
+finder, region candidates are ordered by standoff, with base-body checks before
+arm IK. Sparse mode retains the first four feasible base candidates at each
+searched target to bound graph size; `max_feasible_bases` can override this
+budget (null removes it). This is approximate and may miss a connected path.
+`sparse:false` searches the complete sampled region without this default cap.
+Candidate IK/collision checks are reused during fallback within the same call.
+`xy_offsets`, `yaw_offsets`, and the old `seed_distance` do not control the
+dedicated region search. `mobile_options` configures sampling and motion limits.
+With `current_pose`, connect
 the matching `start_base` plane in model units. Further options are listed in
 the component's header.
 

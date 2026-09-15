@@ -9,16 +9,16 @@ Required inputs:
   target_planes      List, Plane: ordered world TCP planes
 
 Optional inputs:
-  seed_base_planes   List, Plane: one footprint seed or one per target
-                     Empty generates seeds behind each projected TCP +Z.
-                     Vertical normals fall back to projected TCP +X.
-  seed_distance      Item, float: seed offset in model units (default 1 metre)
+  seed_base_planes   List, Plane: optional footprint proposals, one or one per target
   base_height        Item, float: footprint Z in model units (default 0)
+  grid_spacing       Item, float: search spacing in model units (default 0.5 metre)
+  yaw_steps          Item, int: heading samples at each arm origin (default 4)
   model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres
-  mobile_options     Item, JSON: overrides for search/sampling/limits (README)
-                     Default sparse=true; world XY offsets 0 and +/-0.2 metres
-                     on each axis, yaw offsets 0 and +/-0.25 radians.
+  mobile_options     Item, JSON: search/sampling/limits overrides (README)
+                     Sparse default: at most 4 feasible bases per target;
                      max_gap=20, max_distance=0.2 metres, angle=0.15 radians.
+                     sparse=false searches the complete sampled region.
+                     xy_offsets/yaw_offsets are superseded by the region search.
   current_pose       List, float: optional six starting arm angles, radians
   start_base         Item, Plane: required with current_pose; model units
   arm_in_base        Item, Plane: optional calibrated mounting override
@@ -45,7 +45,10 @@ Outputs:
 
 Connect base_planes to grasshopper.py's base_planes input if separate arm
 planning is wanted; this component already returns a validated joint plan.
-Sparse search is approximate, interpolates base poses only, validates every
+The calibrated arm origin must be behind target +Z and within 1.75 metres
+in XY, using the stationary finder region at each target. These rules also
+apply to every interpolated pose. Sparse search is approximate, interpolates
+base poses only, validates every
 original target/transition and falls back to dense search on failure. Limits
 and speed timing are configured through mobile_options in metres/radians.
 The planner assumes a holonomic upright base; it does not command motion or
@@ -61,17 +64,17 @@ def _refresh_planner():
     from pathlib import Path
 
     import motion_toolbox.recording as recording
-    if getattr(recording, 'RECORDING_VERSION', 0) < 3 and recording.current_run() is None:
+    if getattr(recording, 'RECORDING_VERSION', 0) < 4 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.4':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.5':
         importlib.reload(motion_toolbox)
 
     names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
-        'motion_toolbox.base_planning', 'motion_toolbox.mobile_planning',
+        'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.mobile_planning',
         'motion_toolbox.robot_planning',
     )
     modules = [importlib.import_module(name) for name in names]
@@ -83,7 +86,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 8
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 9
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -101,22 +104,17 @@ def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_jo
     """Callable from standalone Python too; no Grasshopper imports required."""
     _refresh_planner()
     from motion_toolbox.robot_planning import plan_robot
-    from motion_toolbox.mobile_planning import mobile_base_seeds
     from motion_toolbox.geometry import as_plane
     from motion_toolbox.robot_planning import json_input
-    settings = dict(sparse=True, xy_offsets=[[0,0],[0.2,0],[-0.2,0],[0,0.2],[0,-0.2]],
-                    yaw_offsets=[0,0.25,-0.25])
+    settings = dict(sparse=True)
     settings.update(json_input(options.pop('mobile_options', None), {}))
-    distance = options.pop('seed_distance', 1.0/model_units_to_metres)
-    height = options.pop('base_height', 0.0)
+    settings['placement_region'] = True
+    settings['base_height'] = options.pop('base_height', 0.0)*model_units_to_metres
+    settings['grid_spacing'] = options.pop('grid_spacing', .5/model_units_to_metres)*model_units_to_metres
+    settings['yaw_steps'] = options.pop('yaw_steps', 4)
     start_base = options.pop('start_base', None)
     if start_base is not None:
         settings['start_base'] = as_plane(start_base, model_units_to_metres)
-    if not bases:
-        seeds = mobile_base_seeds([as_plane(t, model_units_to_metres) for t in targets],
-                                 distance=distance*model_units_to_metres,
-                                 height=height*model_units_to_metres)
-        bases = [as_plane(b, 1.0/model_units_to_metres) for b in seeds]
     options['mobile_options'] = settings
     return plan_robot(robot, targets, bases, current_pose, arm_in_base, arm_joint_names,
                       collision_meshes, model_units_to_metres, **options)
@@ -153,7 +151,8 @@ try:
         scene=_input('collision_scene'),
         parameters=_input('ur_parameters'),
         mobile_options=_input('mobile_options'),
-        seed_distance=_input('seed_distance', 1.0/_input('model_units_to_metres', 1.0)),
+        grid_spacing=_input('grid_spacing', .5/_input('model_units_to_metres', 1.0)),
+        yaw_steps=_input('yaw_steps', 4),
         base_height=_input('base_height', 0.0), start_base=_input('start_base'),
     )
     from Grasshopper import DataTree
@@ -170,9 +169,6 @@ try:
     timings = result['timings']
     version = result['version']
     for i in unreachable_points:
-        if 'mobile_diagnostics' in result:
-            diagnostics.append('Target {}: no feasible mobile base/arm state.'.format(i))
-            continue
         detail = result['target_diagnostics'][i]
         reason = ('no analytic IK' if not detail['raw_ik'] else
                   'joint limits' if not detail['within_joint_limits'] else 'collision rejection')
@@ -182,7 +178,7 @@ try:
     if configurations:
         status = 'Planned {} targets; collision checking {}.'.format(len(configurations), 'on' if result['collision_check_applied'] else 'off')
     elif unreachable_points:
-        status = 'No complete path. Targets without valid configurations after IK, limits and collisions: {}. See diagnostics.'.format(unreachable_points)
+        status = 'No complete path: {} targets have no feasible state. First indices: {}. See diagnostics for IK/limits/collision reasons.'.format(len(unreachable_points), unreachable_points[:12])
     else:
         status = 'No connected path satisfies joint-step / transition constraints.'
     diagnostics.extend(str(item) for item in result.get('mobile_diagnostics', []))

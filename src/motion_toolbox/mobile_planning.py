@@ -28,7 +28,7 @@ def mobile_base_seeds(targets, *, distance=1.0, height=0.0):
     return seeds
 
 
-def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, **options):
+def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_collision=None, **options):
     """Robot adapter: optimize around existing geometric footprint path seeds.
 
     settings: sparse (False), xy_offsets ([[0,0]]) in world XY metres,
@@ -41,11 +41,16 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, **opti
     settings = dict(settings)
     allowed = {'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
                'start_base', 'max_base_step', 'max_yaw_step', 'base_weight', 'yaw_weight',
-               'joint_weights', 'time_intervals', 'max_base_speed', 'max_yaw_speed', 'max_joint_speed'}
+               'joint_weights', 'time_intervals', 'max_base_speed', 'max_yaw_speed', 'max_joint_speed',
+               'placement_region', 'grid_spacing', 'yaw_steps', 'base_height', 'max_feasible_bases'}
     unknown = set(settings)-allowed
     if unknown:
         raise ValueError('Unknown mobile options: ' + ', '.join(sorted(unknown)))
     sparse = settings.pop('sparse', False)
+    use_region = settings.pop('placement_region', False)
+    spacing = settings.pop('grid_spacing', .5)
+    yaw_steps = settings.pop('yaw_steps', 4)
+    height = settings.pop('base_height', 0.)
     xy = np.asarray(settings.pop('xy_offsets', [[0, 0]]), dtype=float)
     yaw = np.asarray(settings.pop('yaw_offsets', [0]), dtype=float)
     if xy.ndim != 2 or xy.shape[1] != 2 or not len(xy) or not np.isfinite(xy).all():
@@ -57,7 +62,30 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, **opti
         raise ValueError('Keyframe settings require sparse=true')
     options.update(settings)
     options['offsets'] = rotation_offsets('n_steps', steps=rotation_steps)
+    regions, body_cache = {}, {}
+    def region(target):
+        from .stationary_region import StationaryRegion
+        key = as_plane(target).matrix.tobytes()
+        if key not in regions:
+            regions[key] = StationaryRegion([target], options['ik_solver'].arm_in_base,
+                max_distance=1.75, base_height=height, projected=True)
+        return regions[key]
+    if use_region:
+        def valid(target, base):
+            if not region(target).metrics(base)['geometry_valid']:
+                return False
+            key = base.matrix.tobytes()
+            if key not in body_cache:
+                body_cache[key] = base_collision is None or base_collision(base)
+            return body_cache[key]
+        options['base_valid'] = valid
+        if sparse:
+            options.setdefault('max_feasible_bases', 4)
     def layer(i, target):
+        if use_region:
+            generated, _, _ = region(target).candidates(spacing=spacing, yaw_steps=yaw_steps)
+            # Supplied seeds are optional proposals, subject to the same rules.
+            return ([seeds[0] if len(seeds) == 1 else seeds[i]] if seeds else []) + generated
         seed = seeds[0] if len(seeds) == 1 else seeds[i]
         return [Plane(seed.origin + np.r_[offset, 0.], seed.xaxis, seed.yaxis).rotated_z(a)
                 for offset in xy for a in yaw]
@@ -68,7 +96,7 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, **opti
         path_length=solved.cost, num_nodes_computed=len(targets),
         unreachable_points=[i for i,n in enumerate(solved.candidate_counts) if not n],
         collision_check_applied=options.get('collision') is not None,
-        target_diagnostics=[], mobile_diagnostics=solved.diagnostics,
+        target_diagnostics=solved.target_diagnostics, mobile_diagnostics=solved.diagnostics,
         ik_solutions_per_node=solved.ik_solutions_per_node,
         solution_counts_after_collision=solved.candidate_counts,
         timings={'mobile_seconds': perf_counter()-started})
@@ -141,6 +169,9 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=20,
     """
     started = perf_counter()
     targets = [as_plane(t) for t in targets]
+    # Same target/base candidate states are independent of coarse edge limits.
+    # Keep this cache local to this invocation and its fixed robot/scene/options.
+    options = dict(options, _candidate_cache={})
     indices = significant_targets(targets, max_gap=max_gap, max_distance=max_distance, angle=angle)
     if not callable(base_candidates_per_target) and len(base_candidates_per_target) != len(targets):
         raise ValueError('Provide one candidate layer per target')

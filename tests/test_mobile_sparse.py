@@ -79,3 +79,49 @@ def test_mobile_json_cannot_disable_robot_collision_checks():
     with pytest.raises(ValueError, match='Unknown mobile options'):
         plan_mobile_robot_path([plane(0)],[plane(0)],{'collision':None},
                                ik_solver=lambda t,b:[[0]],collision=lambda q,b:False)
+
+
+def test_fallback_reuses_keyframe_candidates_and_reports_collision_reason():
+    calls = []
+    targets = [plane(i*.01) for i in range(5)]
+    def ik(t,b):
+        calls.append((t.origin[0],b.origin[0]))
+        return [[0]]
+    class Collision:
+        last_failure = 'self collision: arm / chassis'
+        def valid(self,q,b):
+            return False
+    result = plan_mobile_sparse(targets, [[t] for t in targets], ik_solver=ik,
+                                collision=Collision().valid)
+    assert len(calls) == len(set(calls)) == 5
+    assert not result.base_planes
+    assert result.target_diagnostics[0]['raw_ik'] == 1
+    assert result.target_diagnostics[0]['rejection_reasons'] == {'self collision: arm / chassis':1}
+
+
+def test_mobile_region_uses_calibrated_arm_origin_and_all_original_targets():
+    from motion_toolbox.mobile_planning import plan_mobile_robot_path
+    from motion_toolbox.stationary_region import StationaryRegion
+    class Solver:
+        arm_in_base = Plane((.275,.2,1.03),(-1,0,0),(0,-1,0))
+        def __call__(self,t,b):
+            return [[0]]
+    solver = Solver()
+    targets = [Plane((i*.01,0,.1),(1,0,0),(0,0,-1)) for i in range(11)]
+    result = plan_mobile_robot_path(targets, [], dict(placement_region=True,sparse=True),
+                                    ik_solver=solver)
+    assert len(result['base_planes']) == len(result['configurations']) == 11
+    for t,b in zip(targets,result['base_planes']):
+        m = StationaryRegion([t],solver.arm_in_base,projected=True).metrics(b)
+        assert m['geometry_valid']
+        assert m['max_projected_distance'] <= 1.75+1e-9
+        assert m['arm_origin'][1] < 0
+
+
+def test_sparse_interpolation_cannot_bypass_placement_rules():
+    targets = [plane(i*.01) for i in range(3)]
+    layers = [[plane(0,-.1)], [plane(.01,.1)], [plane(.02,-.1)]]
+    result = plan_mobile_sparse(targets,layers,ik_solver=lambda t,b:[[0]],
+        base_valid=lambda t,b: b.origin[1] > 0 if t.origin[0] == .01 else b.origin[1] < 0)
+    assert result.diagnostics[-1]['dense_fallback']
+    assert result.base_planes[1].origin[1] > 0

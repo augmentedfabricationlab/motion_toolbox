@@ -117,7 +117,9 @@ def test_dedicated_mobile_base_component(gh):
         mobile_options='{"xy_offsets":[[0,0]],"yaw_offsets":[0],"time_intervals":[1,1]}'))
     assert out['status'].startswith('Planned'), out['status']
     assert len(out['base_planes']) == len(out['joint_plan'].branches) == 3
-    np.testing.assert_allclose([b.origin[0] for b in out['base_planes']], [0,.01,.02])
+    from motion_toolbox.stationary_region import StationaryRegion
+    for target, base in zip(targets, out['base_planes']):
+        assert StationaryRegion([target], Plane.world_xy(), projected=True).metrics(base)['geometry_valid']
     assert out['result']['collision_check_applied']
     assert all(c['lift'] == .2 for c in out['configurations'])
 

@@ -61,10 +61,10 @@ def _refresh_planner():
     from pathlib import Path
 
     import motion_toolbox.recording as recording
-    if getattr(recording, 'RECORDING_VERSION', 0) < 3 and recording.current_run() is None:
+    if getattr(recording, 'RECORDING_VERSION', 0) < 4 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.4':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.5':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -83,7 +83,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 8
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 9
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -151,9 +151,6 @@ try:
     timings = result['timings']
     version = result['version']
     for i in unreachable_points:
-        if 'mobile_diagnostics' in result:
-            diagnostics.append('Target {}: no feasible mobile base/arm state.'.format(i))
-            continue
         detail = result['target_diagnostics'][i]
         reason = ('no analytic IK' if not detail['raw_ik'] else
                   'joint limits' if not detail['within_joint_limits'] else 'collision rejection')
@@ -163,7 +160,7 @@ try:
     if configurations:
         status = 'Planned {} targets; collision checking {}.'.format(len(configurations), 'on' if result['collision_check_applied'] else 'off')
     elif unreachable_points:
-        status = 'No complete path. Targets without valid configurations after IK, limits and collisions: {}. See diagnostics.'.format(unreachable_points)
+        status = 'No complete path: {} targets have no feasible state. First indices: {}. See diagnostics for IK/limits/collision reasons.'.format(len(unreachable_points), unreachable_points[:12])
     else:
         status = 'No connected path satisfies joint-step / transition constraints.'
     diagnostics.extend(str(item) for item in result.get('mobile_diagnostics', []))

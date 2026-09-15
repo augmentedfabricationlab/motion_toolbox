@@ -9,7 +9,7 @@ from .geometry import Plane, as_plane
 from .robot_adapter import kinematics_from_robot, configuration_from_values, resolve_arm_joint_names, _active_tool
 from .planning import calculate_partial_trajectory
 
-ROBOT_COMPONENT_VERSION = 8
+ROBOT_COMPONENT_VERSION = 9
 
 
 def json_input(value, default=None):
@@ -81,10 +81,11 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
         converted_bases = [as_plane(b, model_units_to_metres) for b in base_items]
     else:
         bcf = getattr(robot, 'BCF', None)
-        if bcf is None:
+        region_search = mobile_options is not None and json_input(mobile_options, {}).get('placement_region', False)
+        if bcf is None and not region_search:
             raise ValueError('Provide base_planes or initialize robot.BCF')
-        converted_bases = [as_plane(bcf)]  # robot properties are already in metres
-    if len(converted_bases) not in (1, len(targets)):
+        converted_bases = [] if region_search else [as_plane(bcf)]  # robot properties are already in metres
+    if len(converted_bases) not in (1, len(targets)) and not (not converted_bases and mobile_options is not None):
         raise ValueError('Provide one footprint base plane or one per target')
     solver = kinematics_from_robot(robot, parameters=json_input(parameters), group=group,
         arm_in_base=as_plane(arm_in_base, model_units_to_metres) if arm_in_base is not None else None,
@@ -131,6 +132,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
             result = plan_mobile_robot_path(targets, converted_bases, json_input(mobile_options, {}),
                 ik_solver=solver, current_pose=start, joint_ranges=ranges, periodic=periodic,
                 max_joint_step=max_joint_step, rotation_steps=rotation_steps,
+                base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
                 collision=partial(world.is_valid, clearance=clearance) if world else None,
                 transition_check=partial(world.edge_is_valid, periodic=periodic, clearance=clearance, **edge_options) if world and check_edges else None)
             converted_bases = result['base_planes']

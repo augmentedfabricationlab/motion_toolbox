@@ -16,6 +16,35 @@ def rows(run, sql):
         return db.execute(sql).fetchall()
 
 
+def test_git_timeout_is_cached_and_source_archive_survives(tmp_path, monkeypatch):
+    import subprocess
+    calls = []
+    original = subprocess.run
+    def timeout(*args, **kwargs):
+        if not isinstance(args[0], list) or args[0][0] != 'git':
+            return original(*args, **kwargs)
+        calls.append(args)
+        raise subprocess.TimeoutExpired('git', 5)
+    monkeypatch.setattr('motion_toolbox.recording.subprocess.run', timeout)
+    with ResearchRun(tmp_path) as run:
+        shortest_path([[[0]], [[1]]])
+    assert len(calls) == 1
+    sources = rows(run, 'SELECT * FROM sources')
+    assert sources
+    assert 'metadata_error' in json.loads(sources[0]['git_json'])
+    assert rows(run, 'SELECT status FROM run')[0][0] == 'ok'
+    metadata = json.loads(rows(run, 'SELECT metadata_json FROM run')[0][0])
+    assert metadata  # Existing version/code-fingerprint metadata is preserved.
+
+
+def test_closed_context_does_not_poison_next_planning_call(tmp_path, monkeypatch):
+    monkeypatch.setenv('TOOLBOX_LOG_DIR', str(tmp_path))
+    with ResearchRun(tmp_path) as run:
+        run.close()
+        assert current_run() is None
+        assert shortest_path([[[0]], [[1]]]).configurations == [[0], [1]]
+
+
 def test_graph_is_reproducible_from_saved_inputs(tmp_path):
     layers = [[[0., 0.], [1., 1.]], [[.2, .3], [1.2, 1.3]]]
     with ResearchRun(tmp_path, config={'experiment': 'test'}, seed=42) as run:

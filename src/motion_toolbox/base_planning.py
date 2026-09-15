@@ -157,6 +157,7 @@ class BasePlan:
     base_collision_checks: int = 0
     heuristic_plane: object = None
     ik_solutions_per_node: list = field(default_factory=list)
+    target_diagnostics: list = field(default_factory=list)
 
     @property
     def base_plane(self):
@@ -435,7 +436,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         start_base=None, collision=None, transition_check=None, offsets=(0.0,), joint_ranges=None,
         max_base_step=0.25, max_yaw_step=0.25, max_joint_step=2.5,
         base_weight=1.0, yaw_weight=1.0, joint_weights=None, periodic=None,
-        time_intervals=None, max_base_speed=None, max_yaw_speed=None, max_joint_speed=None):
+        time_intervals=None, max_base_speed=None, max_yaw_speed=None, max_joint_speed=None,
+        _candidate_cache=None, base_valid=None, max_feasible_bases=None):
     """Jointly optimize arm configuration and holonomic base pose per TCP target.
 
     Exact over the supplied discretized states, with weighted Euclidean step
@@ -448,15 +450,33 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         raise ValueError('Provide a nonempty candidate layer for every target')
     if (current_pose is None) != (start_base is None):
         raise ValueError('Specify both current_pose and start_base, or neither')
-    states, numeric = [], []
+    if max_feasible_bases is not None and (int(max_feasible_bases) != max_feasible_bases or max_feasible_bases < 1):
+        raise ValueError('max_feasible_bases must be a positive integer')
+    states, numeric, diagnostics = [], [], []
     arm_dimension = None
     for target, bases in zip(targets, base_candidates_per_target):
         states_at_target, numeric_at_target = [], []
+        total = dict(raw_ik=0, within_joint_limits=0, collision_free=0, rejection_reasons={})
+        feasible_bases = 0
         for base in bases:
             base = as_plane(base)
             if not np.allclose(base.zaxis, (0, 0, 1)):
                 raise ValueError('Mobile bases must be upright')
-            qs, _, _ = candidates(target, base, ik_solver, offsets, collision, joint_ranges)
+            if base_valid is not None and not base_valid(target, base):
+                total['rejection_reasons']['base placement region or body collision'] = total['rejection_reasons'].get('base placement region or body collision', 0)+1
+                continue
+            key = (as_plane(target).matrix.tobytes(), base.matrix.tobytes()) if _candidate_cache is not None else None
+            if _candidate_cache is not None and key in _candidate_cache:
+                qs, stats = _candidate_cache[key]
+            else:
+                stats = {}
+                qs, _, _ = candidates(target, base, ik_solver, offsets, collision, joint_ranges, stats=stats)
+                if _candidate_cache is not None:
+                    _candidate_cache[key] = qs, stats
+            for name in ('raw_ik', 'within_joint_limits', 'collision_free'):
+                total[name] += stats[name]
+            for reason, count in stats['rejection_reasons'].items():
+                total['rejection_reasons'][reason] = total['rejection_reasons'].get(reason, 0)+count
             for q in qs:
                 arm_dimension = len(q) if arm_dimension is None else arm_dimension
                 if len(q) != arm_dimension:
@@ -464,12 +484,18 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                 yaw = math.atan2(base.xaxis[1], base.xaxis[0])
                 states_at_target.append((q, base))
                 numeric_at_target.append(list(base.origin)+[yaw]+q)
+            if qs:
+                feasible_bases += 1
+                if max_feasible_bases is not None and feasible_bases >= max_feasible_bases:
+                    break
         states.append(states_at_target)
         numeric.append(numeric_at_target)
+        diagnostics.append(total)
     counts = [len(layer) for layer in states]
     joint_layers = [[q for q, base in layer] for layer in states]
     if not all(counts):
-        return BasePlan([], [], float('inf'), counts, [], ik_solutions_per_node=joint_layers)
+        return BasePlan([], [], float('inf'), counts, [], ik_solutions_per_node=joint_layers,
+                        target_diagnostics=diagnostics)
     n = arm_dimension
     if max_joint_speed is not None:
         speeds = np.asarray(max_joint_speed, dtype=float)
@@ -519,4 +545,4 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                            max_step=limits, edge_valid=edge, count_paths=False)
     chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
     return BasePlan(chosen_bases, [q[4:] for q in solved.configurations], solved.cost, counts, [],
-                    ik_solutions_per_node=joint_layers)
+                    ik_solutions_per_node=joint_layers, target_diagnostics=diagnostics)
