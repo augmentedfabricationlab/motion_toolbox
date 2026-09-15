@@ -1,6 +1,6 @@
 """Stationary placement and coupled base/arm trajectory search."""
 from motion_toolbox.recording import recorded
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from time import perf_counter
 import numpy as np
@@ -156,6 +156,7 @@ class BasePlan:
     validation_attempts: int = 0
     base_collision_checks: int = 0
     heuristic_plane: object = None
+    ik_solutions_per_node: list = field(default_factory=list)
 
     @property
     def base_plane(self):
@@ -466,8 +467,9 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         states.append(states_at_target)
         numeric.append(numeric_at_target)
     counts = [len(layer) for layer in states]
+    joint_layers = [[q for q, base in layer] for layer in states]
     if not all(counts):
-        return BasePlan([], [], float('inf'), counts, [])
+        return BasePlan([], [], float('inf'), counts, [], ik_solutions_per_node=joint_layers)
     n = arm_dimension
     if max_joint_speed is not None:
         speeds = np.asarray(max_joint_speed, dtype=float)
@@ -510,8 +512,11 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                 return False
         return transition_check is None or transition_check(q0, b0, q1, b1)
 
-    limits = [np.inf]*4+np.broadcast_to(np.inf if max_joint_step is None else max_joint_step, (n,)).tolist()
+    # Cheap vectorized bounds reject distant states before Python edge callbacks.
+    # The callback still enforces the Euclidean translation and timed limits.
+    limits = [np.inf if max_base_step is None else max_base_step]*3 + [np.inf if max_yaw_step is None else max_yaw_step] + np.broadcast_to(np.inf if max_joint_step is None else max_joint_step, (n,)).tolist()
     solved = shortest_path(numeric, start=start, weights=weights, periodic=[False]*3+[True]+arm_periodic,
-                           max_step=limits, edge_valid=edge)
+                           max_step=limits, edge_valid=edge, count_paths=False)
     chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
-    return BasePlan(chosen_bases, [q[4:] for q in solved.configurations], solved.cost, counts, [])
+    return BasePlan(chosen_bases, [q[4:] for q in solved.configurations], solved.cost, counts, [],
+                    ik_solutions_per_node=joint_layers)

@@ -16,6 +16,20 @@ from motion_toolbox.robot_planning import plan_robot
 EXAMPLES = Path(__file__).resolve().parents[1]/'examples'
 
 
+def test_mobile_component_uses_shared_robot_workflow(gh):
+    robot, q, targets, names = robot_fixture()
+    out = runpy.run_path(str(EXAMPLES/'grasshopper.py'), init_globals=dict(
+        robot=robot, target_planes=targets, arm_in_base=Plane.world_xy(),
+        base_planes=[Plane((i*.01,0,0),(1,0,0),(0,1,0)) for i in range(3)],
+        rotation_steps=1, check_edges=True, fixed_joint_values='{"lift": 0.2}',
+        mobile_options='{"sparse":true,"time_intervals":[1,1],"max_base_speed":0.02}'))
+    assert out['status'].startswith('Planned'), out['status']
+    assert len(out['base_result']) == len(out['joint_plan'].branches) == len(targets)
+    assert out['result']['collision_check_applied']
+    np.testing.assert_allclose([b.origin[0] for b in out['base_result']], [0,.01,.02])
+    assert all(c['lift'] == .2 for c in out['configurations'])
+
+
 def robot_fixture():
     links = '<link name="root"/>'
     joints = ''

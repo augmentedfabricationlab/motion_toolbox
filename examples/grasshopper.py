@@ -26,6 +26,9 @@ Optional:
   collision_scene       Item: optional preconfigured PybulletServer to reuse
   group                 Item, str: tool/planning group when more than one is present
   ur_parameters         Item: optional JSON list of six UR geometry parameters
+  mobile_options        Item: optional JSON; enables base search around base_planes
+                        E.g. {"sparse":true,"xy_offsets":[[0,0],[0.1,0],[-0.1,0]]}
+                        All search lengths in metres, angles in radians. See README.
   toolbox_src           Item, str: optional development override; normally omit
 
 Outputs:
@@ -43,7 +46,8 @@ Outputs:
 Paste this entire file into a Python 3 component. Install NumPy and COMPAS FAB
 1.x in that Python environment, plus PyBullet for collisions. Robot/tool geometry
 is already in metres; the scale input applies only to supplied planes/meshes.
-This uses UR20 geometry by default. It does not search for new base locations.
+This uses UR20 geometry by default. mobile_options opts into mobile base search;
+otherwise supplied base planes are used unchanged for stationary or mobile IK.
 The controller base can differ from URDF base_link (by Z=180 degrees in the source
 UR20 model). Match this frame to your model; the active tool is relative to tool0.
 """
@@ -60,13 +64,14 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 3 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.2':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.3':
         importlib.reload(motion_toolbox)
 
     names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
+        'motion_toolbox.base_planning', 'motion_toolbox.mobile_planning',
         'motion_toolbox.robot_planning',
     )
     modules = [importlib.import_module(name) for name in names]
@@ -78,7 +83,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 6
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 7
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -130,6 +135,7 @@ try:
         collision_options=_input('collision_options'), group=_input('group'),
         scene=_input('collision_scene'),
         parameters=_input('ur_parameters'),
+        mobile_options=_input('mobile_options'),
     )
     from Grasshopper import DataTree
     from Grasshopper.Kernel.Data import GH_Path
@@ -145,6 +151,9 @@ try:
     timings = result['timings']
     version = result['version']
     for i in unreachable_points:
+        if 'mobile_diagnostics' in result:
+            diagnostics.append('Target {}: no feasible mobile base/arm state.'.format(i))
+            continue
         detail = result['target_diagnostics'][i]
         reason = ('no analytic IK' if not detail['raw_ik'] else
                   'joint limits' if not detail['within_joint_limits'] else 'collision rejection')
@@ -157,6 +166,7 @@ try:
         status = 'No complete path. Targets without valid configurations after IK, limits and collisions: {}. See diagnostics.'.format(unreachable_points)
     else:
         status = 'No connected path satisfies joint-step / transition constraints.'
+    diagnostics.extend(str(item) for item in result.get('mobile_diagnostics', []))
     for warning in result['warnings']:
         diagnostics.append(warning)
         status += ' Warning: ' + warning
