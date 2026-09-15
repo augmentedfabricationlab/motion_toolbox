@@ -106,6 +106,19 @@ def test_failure_to_record_does_not_change_result_or_original_exception(tmp_path
         with pytest.raises(ValueError, match='original failure'):
             operation(True)
     assert rows(run, 'SELECT status FROM run')[0][0] == 'incomplete'
+    assert 'disk full' in (run.path/'recording_errors.jsonl').read_text()
+
+
+def test_metadata_records_package_and_loaded_code_versions(tmp_path):
+    from motion_toolbox import __version__
+    with ResearchRun(tmp_path) as run:
+        shortest_path([[[0.]], [[.1]]])
+    metadata = json.loads(rows(run, 'SELECT metadata_json FROM run')[0][0])
+    assert metadata['loaded_modules']['motion_toolbox']['version'] == __version__
+    info = metadata['loaded_modules']['motion_toolbox.graph']
+    assert len(info['loaded_code_sha256']) == 64
+    assert len(info['file_sha256']) == 64
+    assert rows(run, 'SELECT status FROM run')[0][0] == 'ok'
 
 
 def test_thread_binding_and_nested_run_restore(tmp_path):

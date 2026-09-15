@@ -9,7 +9,7 @@ from .geometry import Plane, as_plane
 from .robot_adapter import kinematics_from_robot, configuration_from_values, resolve_arm_joint_names, _active_tool
 from .planning import calculate_partial_trajectory
 
-ROBOT_COMPONENT_VERSION = 5
+ROBOT_COMPONENT_VERSION = 6
 
 
 def json_input(value, default=None):
@@ -137,6 +137,8 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
         values = dict(all_values, **dict(zip(names, q)))
         objects.append(configuration_from_values([values[n] for n in output_names], output_names, types))
     result['configuration_objects'] = objects
+    from . import __version__
+    result['version'] = __version__
     result['warnings'] = warnings
     result['mounting_source'] = solver.mounting_source
     result['arm_in_base'] = solver.arm_in_base

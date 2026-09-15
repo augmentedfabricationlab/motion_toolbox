@@ -20,6 +20,7 @@ import importlib.metadata
 import inspect
 import json
 import math
+import marshal
 import os
 import platform
 import sqlite3
@@ -36,7 +37,7 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 2
+RECORDING_VERSION = 3
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
@@ -60,6 +61,36 @@ def _json(value):
 
 def _type(value):
     return type(value).__module__ + '.' + type(value).__qualname__
+
+
+def loaded_versions():
+    """Identify loaded code separately from files/install metadata (Rhino caches imports)."""
+    result = {}
+    for name, module in list(sys.modules.items()):
+        if name.split('.')[0] not in ('motion_toolbox', 'motion_toolbox_ros', 'toolpath_toolbox'):
+            continue
+        path = getattr(module, '__file__', None)
+        if not path or not Path(path).is_file():
+            continue
+        functions = []
+        for key, value in sorted(vars(module).items()):
+            if inspect.isfunction(value) and value.__module__ == name:
+                functions.append((key, inspect.unwrap(value).__code__))
+            elif inspect.isclass(value) and value.__module__ == name:
+                for member, method in sorted(vars(value).items()):
+                    if isinstance(method, (staticmethod, classmethod)):
+                        method = method.__func__
+                    if inspect.isfunction(method):
+                        functions.append((key+'.'+member, inspect.unwrap(method).__code__))
+        digest = hashlib.sha256()
+        for key, code in functions:
+            digest.update(key.encode()); digest.update(marshal.dumps(code))
+        result[name] = dict(version=getattr(module, '__version__', None), path=str(Path(path).resolve()),
+                            file_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest(),
+                            loaded_code_sha256=digest.hexdigest(),
+                            api_versions={k:v for k,v in vars(module).items()
+                                          if k.endswith('_VERSION') and isinstance(v,(int,str))})
+    return result
 
 
 class ResearchRun:
@@ -89,6 +120,11 @@ class ResearchRun:
         try:
             return function(*args, **kwargs)
         except Exception as error:
+            try:
+                with (self.path/'recording_errors.jsonl').open('a', encoding='utf-8') as stream:
+                    stream.write(_json({'error': _type(error), 'message': str(error)})+'\n')
+            except Exception:
+                pass
             if not self.failed:
                 # Warning filters must not turn telemetry failures into control failures.
                 try:
@@ -126,7 +162,8 @@ class ResearchRun:
                         argv=sys.argv, cwd=str(Path.cwd()), seed=self.encode(self.seed), tags=self.encode(self.tags),
                         packages={d.metadata['Name']: d.version for d in importlib.metadata.distributions()
                                   if d.metadata['Name']}, detail=self.detail,
-                        config=self.encode(self.config), timing='perf_counter_ns; thread_time_ns',
+                        config=self.encode(self.config), loaded_modules=loaded_versions(),
+                        timing='perf_counter_ns; thread_time_ns',
                         thread_settings={k: os.environ[k] for k in
                             ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS') if k in os.environ})
         self.db.execute('INSERT INTO run VALUES(?,?,?,?,?,?,?)',
@@ -258,7 +295,7 @@ class ResearchRun:
                 git = self._repositories[str(root)]
             elif root:
                 def command(*args):
-                    result = subprocess.run(['git', '-C', str(root), *args], capture_output=True,
+                    result = subprocess.run(['git', '-c', 'safe.directory='+str(root), '-C', str(root), *args], capture_output=True,
                                             timeout=5, check=True)
                     return result.stdout
                 git = {'root': str(root), 'commit': command('rev-parse', 'HEAD').decode().strip(),

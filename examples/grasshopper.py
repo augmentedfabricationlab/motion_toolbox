@@ -38,6 +38,7 @@ Outputs:
   status                Outcome with collision checking state
   timings               Dictionary: setup, IK, joint expansion, collisions and graph seconds
   diagnostics           List of text: warnings, failed targets, filter counts and rejection reasons
+  version               String: loaded motion-toolbox package version
 
 Paste this entire file into a Python 3 component. Install NumPy and COMPAS FAB
 1.x in that Python environment, plus PyBullet for collisions. Robot/tool geometry
@@ -56,8 +57,11 @@ def _refresh_planner():
     from pathlib import Path
 
     import motion_toolbox.recording as recording
-    if getattr(recording, 'RECORDING_VERSION', 0) < 2 and recording.current_run() is None:
+    if getattr(recording, 'RECORDING_VERSION', 0) < 3 and recording.current_run() is None:
         importlib.reload(recording)
+    import motion_toolbox
+    if getattr(motion_toolbox, '__version__', None) != '0.1.2':
+        importlib.reload(motion_toolbox)
 
     names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
@@ -74,7 +78,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 5
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 6
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -108,6 +112,7 @@ path_cost = None
 unreachable_points = []
 result = None
 status = ''
+version = ''
 timings = {}
 diagnostics = []
 
@@ -138,6 +143,7 @@ try:
     path_cost = result['path_length']
     unreachable_points = result['unreachable_points']
     timings = result['timings']
+    version = result['version']
     for i in unreachable_points:
         detail = result['target_diagnostics'][i]
         reason = ('no analytic IK' if not detail['raw_ik'] else

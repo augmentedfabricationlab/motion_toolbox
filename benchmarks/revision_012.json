@@ -1,0 +1,10 @@
+{
+  "new_graph_seconds": 12.928903700000001,
+  "old_graph_seconds": 14.373083000000005,
+  "graph_layers": 100,
+  "graph_identical": false,
+  "new_candidate_overhead_seconds": 8.881440300000001,
+  "old_candidate_overhead_seconds": 18.495161699999997,
+  "candidate_identical": true,
+  "scope": "Graph: first 100 real archived layers. Candidate benchmark: 100 synthetic 180-solution layers with real robot joint limits and cheap periodic checker, isolates Python bookkeeping."
+}

@@ -38,24 +38,33 @@ def _winding_layer(previous, current, costs, counts, weights, limits, count_path
         return None  # Distinct near-identical poses: retain the general solver.
     table = np.full((len(first), slots), -1, dtype=int)
     table[groups, codes] = np.arange(len(previous))
-    required = np.rint((current[:,None,:]-representatives[None,:,:])/period).astype(np.int64)
-    valid = np.all((required >= lower) & (required <= upper), axis=2)
-    codes = (required-lower) @ strides
-    indices = table[np.arange(len(first))[None,:], np.clip(codes, 0, slots-1)]
-    valid &= indices >= 0
-    safe = np.maximum(indices, 0)
-    delta = current[:,None,:]-previous[safe]
-    valid &= np.all(np.abs(delta) <= limits, axis=2)
-    values = costs[safe]+np.linalg.norm(delta*weights, axis=2)
-    values[~valid] = np.inf
-    best = values.min(axis=1)
-    # Preserve the original first-predecessor tie break across physical groups.
-    parents = np.where(values == best[:,None], safe, len(previous)).min(axis=1)
-    next_counts = [0]*len(current)
-    if count_paths:
-        previous_counts = np.asarray(counts, dtype=object)
-        next_counts = np.where(np.isfinite(values), previous_counts[safe], 0).sum(axis=1).tolist()
-    return best, parents, next_counts
+    # Keep pair temporaries in cache instead of allocating a full layer x pose x joint tensor.
+    best_all = np.empty(len(current))
+    parents_all = np.empty(len(current), dtype=int)
+    counts_all = []
+    for offset in range(0, len(current), 128):
+        block = current[offset:offset+128]
+        required = np.rint((block[:,None,:]-representatives[None,:,:])/period).astype(np.int64)
+        valid = np.all((required >= lower) & (required <= upper), axis=2)
+        codes = (required-lower) @ strides
+        indices = table[np.arange(len(first))[None,:], np.clip(codes, 0, slots-1)]
+        valid &= indices >= 0
+        safe = np.maximum(indices, 0)
+        delta = block[:,None,:]-previous[safe]
+        valid &= np.all(np.abs(delta) <= limits, axis=2)
+        values = costs[safe]+np.linalg.norm(delta*weights, axis=2)
+        values[~valid] = np.inf
+        best = values.min(axis=1)
+        # Preserve the original first-predecessor tie break across physical groups.
+        parents = np.where(values == best[:,None], safe, len(previous)).min(axis=1)
+        next_counts = [0]*len(block)
+        if count_paths:
+            previous_counts = np.asarray(counts, dtype=object)
+            next_counts = np.where(np.isfinite(values), previous_counts[safe], 0).sum(axis=1).tolist()
+        best_all[offset:offset+len(block)] = best
+        parents_all[offset:offset+len(block)] = parents
+        counts_all.extend(next_counts)
+    return best_all, parents_all, counts_all
 
 
 @recorded

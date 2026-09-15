@@ -82,6 +82,12 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 all_q.append(q.tolist())
     ik_finished = perf_counter()
     ranged = []
+    groups = []
+    checker = getattr(collision, '__self__', None)
+    from functools import partial
+    if isinstance(collision, partial) and not collision.args:
+        checker = getattr(collision.func, '__self__', None)
+    group_key = getattr(checker, 'configuration_group_cache_key', None)
     for q in all_q:
         # Analytic IK returns principal angles. Enumerate valid revolutions for
         # explicitly bounded joints so limits such as [-2*pi, 0] remain usable.
@@ -95,7 +101,11 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 alternatives.append([value+2*math.pi*k for k in range(math.ceil((lo-value)/(2*math.pi)), math.floor((hi-value)/(2*math.pi))+1)])
             else:
                 alternatives.append([value])
-        ranged.extend(list(v) for v in itertools.product(*alternatives) if _in_ranges(v, joint_ranges))
+        rows = [list(v) for v in itertools.product(*alternatives) if _in_ranges(v, joint_ranges)]
+        ranged.extend(rows)
+        if rows:
+            key = group_key(alternatives) if group_key is not None else None
+            groups.append((rows, key))
     expansion_finished = perf_counter()
     valid = ranged
     failures = {}
@@ -104,15 +114,18 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
     collision_cache_hits = 0
     if collision is not None:
         valid = []
-        checker = getattr(collision, '__self__', None)
-        # Robot/CLI entry points bind clearance using functools.partial.
-        from functools import partial
-        if isinstance(collision, partial) and not collision.args:
-            checker = getattr(collision.func, '__self__', None)
         cache_key = getattr(checker, 'configuration_cache_key', None)
         cache = {}
-        for q in ranged:
-            key = cache_key(q) if cache_key is not None else None
+        def batches():
+            for rows, key in groups:
+                if key is not None:
+                    yield rows, key
+                else:
+                    for q in rows:
+                        yield [q], cache_key(q) if cache_key is not None else None
+        for rows, key in batches():
+            q = rows[0]
+            collision_cache_hits += len(rows)-1
             if key is not None and key in cache:
                 collision_cache_hits += 1
                 accepted, reason = cache[key]
@@ -125,9 +138,9 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 if key is not None:
                     cache[key] = accepted, reason
             if accepted:
-                valid.append(q)
+                valid.extend(rows)
             elif stats is not None:
-                failures[reason] = failures.get(reason, 0)+1
+                failures[reason] = failures.get(reason, 0)+len(rows)
     if stats is not None:
         stats.update(raw_ik=len(all_q), within_joint_limits=len(ranged),
                      collision_checks=collision_checks, collision_rejections=collision_rejections,

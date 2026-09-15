@@ -10,7 +10,7 @@ import numpy as np
 from .geometry import Plane, as_plane
 
 
-COLLISION_API_VERSION = 9
+COLLISION_API_VERSION = 10
 
 
 def _validate_urdf(path):
@@ -314,6 +314,19 @@ class PybulletServer:
             return 'out_of_range', tuple(q)
         return tuple(round((v+math.pi) % (2*math.pi)-math.pi, 10)
                      if kind == self.p.JOINT_REVOLUTE else v for v, kind in zip(q, self._joint_types))
+
+    def configuration_group_cache_key(self, alternatives):
+        """Validate an entire Cartesian product of equivalent bounded joint turns."""
+        if len(alternatives) != len(self.joints) or any(not values for values in alternatives):
+            return None
+        for values, (lo, hi), kind in zip(alternatives, self._joint_limits, self._joint_types):
+            if any(not math.isfinite(v) or (lo <= hi and not lo <= v <= hi) for v in values):
+                return None
+            for v in values[1:]:
+                turns = (v-values[0])/(2*math.pi)
+                if kind != self.p.JOINT_REVOLUTE or abs(turns-round(turns)) > 1e-12:
+                    return None
+        return self.configuration_cache_key([values[0] for values in alternatives])
 
     @staticmethod
     def _bounds_overlap(a, b, clearance):
