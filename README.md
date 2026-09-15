@@ -1,5 +1,7 @@
 # Motion toolbox
 
+See [CHANGELOG.md](CHANGELOG.md) for changes between package versions.
+
 Reusable offline IK, PyBullet collision checking, exact layered motion planning,
 stationary base placement, mobile base planning, and rolling replanning.
 The numeric core needs Python 3.9+ and NumPy. Rhino, COMPAS, PyBullet and ROS are
