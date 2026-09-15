@@ -1,55 +1,55 @@
-"""Runnable Rhino 8 Python 3 component: Robot + TCP planes -> optimum joint plan.
+"""Rhino 8 Python 3: plan base motion for printing while driving.
 
-Evaluates automatically on every Grasshopper recompute.
-Mark optional inputs as Optional in Grasshopper, or remove unused inputs.
-Uses the installed motion_toolbox automatically and refreshes stale planner imports.
-Missing active tools produce a Grasshopper warning; planning uses flange/tool0 targets.
+Paste this entire file into a Grasshopper Python 3 component. Recomputes
+when inputs change. Requires motion-toolbox with COMPAS FAB and PyBullet.
+Mark optional inputs Optional. No external path generator is required.
 
-Inputs (names must match; all optional inputs may be omitted):
-  robot                 Item: MobileRobot / COMPAS FAB Robot, model in metres
-  target_planes         List, Plane: ordered world TCP target planes
-  base_planes           List, Plane: one footprint or one per target; empty uses robot.BCF
-  current_pose          List, float: optional six starting arm angles in radians
-  arm_in_base           Item, Plane: UR controller base in footprint INCLUDING lift/rotation
-                        Optional override; inferred from offline calibration or URDF.
-Optional:
-  arm_joint_names List, str: optional override; inferred from robot/tool chain by default
-  collision_meshes      List, Mesh: environment obstacles
-  model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres (default 1)
-  rotation_steps        Item, int: 1 fixes TCP orientation; default 24 samples a turn
-  collision_check       Item, bool: default True (also self/tool collisions)
-  check_edges           Item, bool: default False; opt in to sampled edge checks
-  joint_ranges          Item: JSON [[min,max],...]; defaults to model limits
-  max_joint_step        Item, float: default 2.5 radians per joint per step
-  fixed_joint_values    Item: JSON {"lift_joint_name": 0.2, ...}, metres/radians
-  collision_options     Item: JSON options (see motion_toolbox.robot_planning)
-  collision_scene       Item: optional preconfigured PybulletServer to reuse
-  group                 Item, str: tool/planning group when more than one is present
-  ur_parameters         Item: optional JSON list of six UR geometry parameters
-  mobile_options        Item: optional JSON; enables base search around base_planes
-                        E.g. {"sparse":true,"xy_offsets":[[0,0],[0.1,0],[-0.1,0]]}
-                        All search lengths in metres, angles in radians. See README.
-  toolbox_src           Item, str: optional development override; normally omit
+Required inputs:
+  robot              Item: COMPAS/MobileRobot, model and tool in metres
+  target_planes      List, Plane: ordered world TCP planes
+
+Optional inputs:
+  seed_base_planes   List, Plane: one footprint seed or one per target
+                     Empty generates seeds behind each projected TCP +Z.
+                     Vertical normals fall back to projected TCP +X.
+  seed_distance      Item, float: seed offset in model units (default 1 metre)
+  base_height        Item, float: footprint Z in model units (default 0)
+  model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres
+  mobile_options     Item, JSON: overrides for search/sampling/limits (README)
+                     Default sparse=true; world XY offsets 0 and +/-0.2 metres
+                     on each axis, yaw offsets 0 and +/-0.25 radians.
+                     max_gap=20, max_distance=0.2 metres, angle=0.15 radians.
+  current_pose       List, float: optional six starting arm angles, radians
+  start_base         Item, Plane: required with current_pose; model units
+  arm_in_base        Item, Plane: optional calibrated mounting override
+  arm_joint_names    List, str: optional six arm names in analytic IK order
+  fixed_joint_values Item, JSON: fixed lift/non-arm joints, metres/radians
+  collision_meshes   List, Mesh: environment geometry, model units
+  collision_check    Item, bool: True by default
+  check_edges        Item, bool: True; sampled full-body transition checks
+  rotation_steps     Item, int: 1 by default (preserves TCP orientation)
+  max_joint_step     Item, float: 2.5 radians per target by default
+  joint_ranges       Item, JSON: optional arm limits; default model limits
+  collision_options  Item, JSON: shared robot collision settings
+  collision_scene    Item: optional preconfigured reusable scene
+  group              Item, str: optional active tool/planning group
+  ur_parameters      Item, JSON: optional UR geometry parameters
+  toolbox_src        Item, str: optional development source path
 
 Outputs:
-  joint_plan            DataTree: six arm joint values in branch {target_index}
-  configurations        List of named COMPAS Configurations: lift, then six arm joints
-  base_result           List of footprint planes actually used, one per target
-  path_cost             Total joint-space cost
-  unreachable_points    Zero-based indices without feasible IK
-  result                Full diagnostic dictionary, or None on error
-  status                Outcome with collision checking state
-  timings               Dictionary: setup, IK, joint expansion, collisions and graph seconds
-  diagnostics           List of text: warnings, failed targets, filter counts and rejection reasons
-  version               String: loaded motion-toolbox package version
+  base_planes, base_result: footprint planes, exactly one per TCP on success
+  joint_plan: DataTree of validated arm angles, branch {target_index}
+  configurations: named lift/arm configurations
+  path_cost: combined base/yaw/joint travel cost
+  unreachable_points, result, status, timings, diagnostics, version
 
-Paste this entire file into a Python 3 component. Install NumPy and COMPAS FAB
-1.x in that Python environment, plus PyBullet for collisions. Robot/tool geometry
-is already in metres; the scale input applies only to supplied planes/meshes.
-This uses UR20 geometry by default. mobile_options opts into mobile base search;
-otherwise supplied base planes are used unchanged for stationary or mobile IK.
-The controller base can differ from URDF base_link (by Z=180 degrees in the source
-UR20 model). Match this frame to your model; the active tool is relative to tool0.
+Connect base_planes to grasshopper.py's base_planes input if separate arm
+planning is wanted; this component already returns a validated joint plan.
+Sparse search is approximate, interpolates base poses only, validates every
+original target/transition and falls back to dense search on failure. Limits
+and speed timing are configured through mobile_options in metres/radians.
+The planner assumes a holonomic upright base; it does not command motion or
+produce acceleration/steering-constrained controller trajectories.
 """
 import sys
 
@@ -101,6 +101,23 @@ def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_jo
     """Callable from standalone Python too; no Grasshopper imports required."""
     _refresh_planner()
     from motion_toolbox.robot_planning import plan_robot
+    from motion_toolbox.mobile_planning import mobile_base_seeds
+    from motion_toolbox.geometry import as_plane
+    from motion_toolbox.robot_planning import json_input
+    settings = dict(sparse=True, xy_offsets=[[0,0],[0.2,0],[-0.2,0],[0,0.2],[0,-0.2]],
+                    yaw_offsets=[0,0.25,-0.25])
+    settings.update(json_input(options.pop('mobile_options', None), {}))
+    distance = options.pop('seed_distance', 1.0/model_units_to_metres)
+    height = options.pop('base_height', 0.0)
+    start_base = options.pop('start_base', None)
+    if start_base is not None:
+        settings['start_base'] = as_plane(start_base, model_units_to_metres)
+    if not bases:
+        seeds = mobile_base_seeds([as_plane(t, model_units_to_metres) for t in targets],
+                                 distance=distance*model_units_to_metres,
+                                 height=height*model_units_to_metres)
+        bases = [as_plane(b, 1.0/model_units_to_metres) for b in seeds]
+    options['mobile_options'] = settings
     return plan_robot(robot, targets, bases, current_pose, arm_in_base, arm_joint_names,
                       collision_meshes, model_units_to_metres, **options)
 
@@ -126,16 +143,18 @@ try:
     if source and str(source) not in sys.path:
         sys.path.insert(0, str(source))
     result = plan(
-        _input('robot'), list(_input('target_planes', [])), list(_input('base_planes', [])),
+        _input('robot'), list(_input('target_planes', [])), list(_input('seed_base_planes', [])),
         _input('current_pose', []), _input('arm_in_base'), list(_input('arm_joint_names', [])),
         list(_input('collision_meshes', [])), _input('model_units_to_metres', 1.0),
-        collision_check=_input('collision_check', True), check_edges=_input('check_edges', False),
-        rotation_steps=_input('rotation_steps', 24), joint_ranges=_input('joint_ranges'),
+        collision_check=_input('collision_check', True), check_edges=_input('check_edges', True),
+        rotation_steps=_input('rotation_steps', 1), joint_ranges=_input('joint_ranges'),
         max_joint_step=_input('max_joint_step', 2.5), fixed_joint_values=_input('fixed_joint_values'),
         collision_options=_input('collision_options'), group=_input('group'),
         scene=_input('collision_scene'),
         parameters=_input('ur_parameters'),
         mobile_options=_input('mobile_options'),
+        seed_distance=_input('seed_distance', 1.0/_input('model_units_to_metres', 1.0)),
+        base_height=_input('base_height', 0.0), start_base=_input('start_base'),
     )
     from Grasshopper import DataTree
     from Grasshopper.Kernel.Data import GH_Path
@@ -178,3 +197,6 @@ except Exception as error:
     path_cost, result, unreachable_points = None, None, []
     timings, diagnostics = {}, []
     status = '{}: {}'.format(type(error).__name__, error)
+
+# Primary output for the downstream arm-planning component.
+base_planes = base_result

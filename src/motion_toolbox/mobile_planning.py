@@ -6,6 +6,28 @@ from .geometry import Plane, as_plane
 from .base_planning import plan_mobile_base
 
 
+def mobile_base_seeds(targets, *, distance=1.0, height=0.0):
+    """Upright footprint proposals behind projected TCP +Z, in metres.
+
+    For vertical TCP normals use projected TCP +X instead. These geometric
+    seeds are not reachability/collision guarantees; the robot planner validates
+    the candidate path using the actual arm mounting and tool.
+    """
+    if not math.isfinite(distance) or distance <= 0 or not math.isfinite(height):
+        raise ValueError('Seed distance must be positive and height finite')
+    seeds = []
+    for target in targets:
+        target = as_plane(target)
+        direction = target.zaxis[:2]
+        if np.linalg.norm(direction) < 1e-8:
+            direction = target.xaxis[:2]
+        direction = direction / np.linalg.norm(direction)
+        x, y = target.origin[:2] - distance*direction
+        dx, dy = direction
+        seeds.append(Plane((x,y,height), (dx,dy,0), (-dy,dx,0)))
+    return seeds
+
+
 def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, **options):
     """Robot adapter: optimize around existing geometric footprint path seeds.
 

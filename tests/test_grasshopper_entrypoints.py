@@ -100,12 +100,43 @@ def test_component_executes_with_collision_and_named_output(gh):
     assert out['diagnostics'] == []
 
 
-@pytest.mark.parametrize('filename', ['grasshopper.py', 'grasshopper_motion_plan.py'])
+@pytest.mark.parametrize('filename', ['grasshopper.py', 'grasshopper_motion_plan.py', 'grasshopper_mobile_base.py'])
 def test_missing_inputs_clear_outputs(gh, filename):
     failed = runpy.run_path(str(EXAMPLES/filename))
     assert failed['configurations'] == []
     assert failed['result'] is None
     assert 'Error' in failed['status']
+
+
+def test_dedicated_mobile_base_component(gh):
+    robot, q, targets, names = robot_fixture()
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_mobile_base.py'), init_globals=dict(
+        robot=robot, target_planes=targets, arm_in_base=Plane.world_xy(),
+        seed_base_planes=[Plane((i*.01,0,0),(1,0,0),(0,1,0)) for i in range(3)],
+        fixed_joint_values='{"lift":0.2}',
+        mobile_options='{"xy_offsets":[[0,0]],"yaw_offsets":[0],"time_intervals":[1,1]}'))
+    assert out['status'].startswith('Planned'), out['status']
+    assert len(out['base_planes']) == len(out['joint_plan'].branches) == 3
+    np.testing.assert_allclose([b.origin[0] for b in out['base_planes']], [0,.01,.02])
+    assert out['result']['collision_check_applied']
+    assert all(c['lift'] == .2 for c in out['configurations'])
+
+
+def test_dedicated_mobile_base_generates_seeds_in_model_units(gh):
+    robot, q, targets, names = robot_fixture()
+    inputs = dict(robot=robot, arm_in_base=Plane.world_xy(), collision_check=False,
+                  mobile_options='{"xy_offsets":[[0,0]],"yaw_offsets":[0]}')
+    script = str(EXAMPLES/'grasshopper_mobile_base.py')
+    metres = runpy.run_path(script, init_globals=dict(inputs, target_planes=targets))
+    millimetres = runpy.run_path(script, init_globals=dict(inputs,
+        model_units_to_metres=.001,
+        target_planes=[Plane(t.origin*1000,t.xaxis,t.yaxis) for t in targets]))
+    assert metres['status'].startswith('Planned'), metres['status']
+    assert millimetres['status'].startswith('Planned'), millimetres['status']
+    assert len(metres['base_planes']) == len(targets)
+    # The GH stub leaves returned metre planes unscaled; compare internal results.
+    for a,b in zip(metres['result']['base_planes'], millimetres['result']['base_planes']):
+        np.testing.assert_allclose(a.matrix,b.matrix,atol=1e-12)
 
 
 def test_minimal_component_tree_and_invalid_rotation(gh):
