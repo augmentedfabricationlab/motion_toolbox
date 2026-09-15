@@ -14,9 +14,12 @@ Optional inputs:
   grid_spacing       Item, float: search spacing in model units (default 0.5 metre)
   yaw_steps          Item, int: heading samples at each arm origin (default 4)
   model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres
+  xy_tolerance       Item, float: ignored XY ripple size, model units (default 5 cm)
   mobile_options     Item, JSON: search/sampling/limits overrides (README)
                      Sparse default: at most 4 feasible bases per target;
-                     max_gap=20, max_distance=0.2 metres, angle=0.15 radians.
+                     World XY simplification: xy_tolerance=0.05 metres;
+                     ignores Z and small ripples; no fixed point-count gap.
+                     normal_angle=0.35 radians retains wall-normal changes.
                      sparse=false searches the complete sampled region.
                      xy_offsets/yaw_offsets are superseded by the region search.
   current_pose       List, float: optional six starting arm angles, radians
@@ -67,7 +70,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 4 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.5':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.6':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -86,7 +89,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 9
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 10
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -108,6 +111,9 @@ def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_jo
     from motion_toolbox.robot_planning import json_input
     settings = dict(sparse=True)
     settings.update(json_input(options.pop('mobile_options', None), {}))
+    tolerance = options.pop('xy_tolerance', .05/model_units_to_metres)*model_units_to_metres
+    if settings['sparse']:
+        settings.setdefault('xy_tolerance', tolerance)
     settings['placement_region'] = True
     settings['base_height'] = options.pop('base_height', 0.0)*model_units_to_metres
     settings['grid_spacing'] = options.pop('grid_spacing', .5/model_units_to_metres)*model_units_to_metres
@@ -153,6 +159,7 @@ try:
         mobile_options=_input('mobile_options'),
         grid_spacing=_input('grid_spacing', .5/_input('model_units_to_metres', 1.0)),
         yaw_steps=_input('yaw_steps', 4),
+        xy_tolerance=_input('xy_tolerance', .05/_input('model_units_to_metres', 1.0)),
         base_height=_input('base_height', 0.0), start_base=_input('start_base'),
     )
     from Grasshopper import DataTree

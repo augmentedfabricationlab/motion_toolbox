@@ -234,11 +234,30 @@ offset candidates. Keep `current_pose` empty to omit the approach; if supplied,
 also provide `mobile_options.start_base` as a metre-based numeric plane dictionary
 (`origin`, `x_axis`, `y_axis`).
 
-Sparse mode keeps endpoints, direction changes, accumulated TCP orientation
-changes, and maximum index/distance gaps. It searches these keyframes, interpolates
+Sparse mode now simplifies **world XY positions** with `xy_tolerance=0.05`
+metres by default. Small sinusoidal ripples within that geometric tolerance can
+be removed while larger square-wave turns, reversals and excursions remain.
+It uses point-to-segment error on the ordered path, not local turn angles or
+every Nth point. Z and TCP roll/pitch do not drive this simplification.
+Projected wall-normal heading changes of `normal_angle=0.35` radians still add
+keyframes to help preserve the correct placement side; set it to null to use
+positions only. `z_tolerance` optionally retains large height changes (default
+null). All original 3D targets are still validated.
+
+The dedicated component has an optional `xy_tolerance` Item input in model
+units (default 0.05 m / 50 mm). No new input is required to use the default.
+The same option in `mobile_options` uses metres and takes precedence, e.g.
+`{"sparse":true,"xy_tolerance":0.05}`. Default `max_gap` and `max_distance` are
+null, so dense sampling and ripple arc length do not force extra keyframes.
+They can be supplied as optional index and XY-displacement safeguards.
+`sampling:"legacy"` restores the old 3D turn/orientation/gap selector.
+
+It searches these keyframes, interpolates
 base translation and shortest-arc upright yaw, then solves arm IK and checks
 constraints at **every original target**. It never interpolates arm joint values.
-Interpolation uses TCP arc length, or elapsed time when `time_intervals` is given.
+Interpolation uses monotone projected progress along the simplified XY segments,
+or elapsed time when `time_intervals` is given. Stationary XY segments use index
+progress; small waves and Z oscillation do not accumulate extra base travel.
 Failed full-resolution validation triggers a dense search of the original candidate
 layers. Diagnostics report retained indices, fallback and elapsed time.
 

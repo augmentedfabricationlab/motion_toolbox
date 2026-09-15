@@ -40,6 +40,7 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     from .planning import rotation_offsets
     settings = dict(settings)
     allowed = {'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
+               'sampling', 'xy_tolerance', 'normal_angle', 'z_tolerance',
                'start_base', 'max_base_step', 'max_yaw_step', 'base_weight', 'yaw_weight',
                'joint_weights', 'time_intervals', 'max_base_speed', 'max_yaw_speed', 'max_joint_speed',
                'placement_region', 'grid_spacing', 'yaw_steps', 'base_height', 'max_feasible_bases'}
@@ -57,7 +58,8 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
         raise ValueError('xy_offsets requires finite world XY pairs in metres')
     if yaw.ndim != 1 or not len(yaw) or not np.isfinite(yaw).all():
         raise ValueError('yaw_offsets requires finite angles in radians')
-    selection = {k: settings.pop(k) for k in ('max_gap', 'max_distance', 'angle') if k in settings}
+    selection = {k: settings.pop(k) for k in ('max_gap', 'max_distance', 'angle',
+                 'sampling', 'xy_tolerance', 'normal_angle', 'z_tolerance') if k in settings}
     if selection and not sparse:
         raise ValueError('Keyframe settings require sparse=true')
     options.update(settings)
@@ -139,6 +141,81 @@ def significant_targets(targets, *, max_gap=20, max_distance=0.2, angle=0.15):
     return kept
 
 
+def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
+                       z_tolerance=None, max_gap=None, max_distance=None):
+    """Simplify ordered world-XY positions by bounded point-to-segment error.
+
+    Iterative Douglas-Peucker retains large corners, reversals and excursions,
+    including paths whose endpoints coincide. Small ripples within tolerance
+    do not force points merely because they turn sharply. Z and TCP roll/pitch
+    are ignored by default. Projected wall-normal heading changes are retained
+    at normal_angle radians (None disables); z_tolerance optionally bounds
+    height changes from an anchor. Lengths are metres. Optional gap/distance
+    caps add points after simplification; they are disabled by default.
+    """
+    for name, value in (('xy_tolerance', xy_tolerance), ('normal_angle', normal_angle),
+                        ('z_tolerance', z_tolerance), ('max_distance', max_distance)):
+        if value is None and name != 'xy_tolerance':
+            continue
+        if value is None or not math.isfinite(value) or value <= 0:
+            raise ValueError(name+' must be positive and finite')
+    if max_gap is not None and (int(max_gap) != max_gap or max_gap < 1):
+        raise ValueError('max_gap must be a positive integer or None')
+    frames = [as_plane(t) for t in targets]
+    if not frames:
+        raise ValueError('At least one target required')
+    points = np.array([t.origin[:2] for t in frames])
+    keep = {0, len(frames)-1}
+    anchor = 0
+    for i in range(1, len(frames)):
+        changed = z_tolerance is not None and abs(frames[i].origin[2]-frames[anchor].origin[2]) >= z_tolerance
+        if normal_angle is not None:
+            a, b = frames[anchor].zaxis[:2], frames[i].zaxis[:2]
+            if min(np.linalg.norm(a), np.linalg.norm(b)) > 1e-9:
+                changed |= math.acos(float(np.clip(a @ b / (np.linalg.norm(a)*np.linalg.norm(b)), -1, 1))) >= normal_angle
+        if changed:
+            keep.add(i)
+            anchor = i
+    # Optional safeguards use XY displacement, never accumulated ripple length.
+    if max_gap is not None or max_distance is not None:
+        anchor = 0
+        for i in range(1, len(frames)):
+            if (i in keep or (max_gap is not None and i-anchor >= max_gap) or
+                    (max_distance is not None and np.linalg.norm(points[i]-points[anchor]) >= max_distance)):
+                keep.add(i)
+                anchor = i
+    ordered = sorted(keep)
+    stack = list(zip(ordered, ordered[1:]))
+    while stack:
+        a, b = stack.pop()
+        if b-a < 2:
+            continue
+        chord = points[b]-points[a]
+        length2 = float(chord @ chord)
+        delta = points[a+1:b]-points[a]
+        fraction = np.clip(delta @ chord/length2, 0, 1) if length2 > 1e-24 else np.zeros(len(delta))
+        error2 = np.sum((delta-fraction[:,None]*chord)**2, axis=1)
+        offset = int(np.argmax(error2))
+        if error2[offset] > xy_tolerance**2:
+            i = a+1+offset
+            keep.add(i)
+            stack.extend(((a,i),(i,b)))
+    return sorted(keep)
+
+
+def xy_feature_progress(targets, indices):
+    """Monotone progress along simplified XY segments, ignoring ripple length."""
+    points = np.array([as_plane(t).origin[:2] for t in targets])
+    coordinates = np.zeros(len(points))
+    for a,b in zip(indices, indices[1:]):
+        chord = points[b]-points[a]
+        length = float(np.linalg.norm(chord))
+        fraction = (np.maximum.accumulate(np.clip((points[a:b+1]-points[a]) @ chord/length**2,0,1))
+                    if length > 1e-12 else np.linspace(0,1,b-a+1))
+        coordinates[a:b+1] = coordinates[a] + fraction*(length if length > 1e-12 else 1.)
+    return coordinates
+
+
 def interpolate_bases(indices, bases, coordinates):
     """Linear translation and shortest-arc upright yaw, at every coordinate."""
     result = [None]*len(coordinates)
@@ -157,8 +234,9 @@ def interpolate_bases(indices, bases, coordinates):
     return result
 
 
-def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=20,
-                       max_distance=0.2, angle=0.15, **options):
+def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
+                       max_distance=None, angle=0.15, sampling='xy', xy_tolerance=.05,
+                       normal_angle=.35, z_tolerance=None, **options):
     """Search keyframes, validate every original pose/edge; dense fallback.
 
     Candidate layers may be a callable(index, target), evaluated lazily. Sparse
@@ -172,7 +250,16 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=20,
     # Same target/base candidate states are independent of coarse edge limits.
     # Keep this cache local to this invocation and its fixed robot/scene/options.
     options = dict(options, _candidate_cache={})
-    indices = significant_targets(targets, max_gap=max_gap, max_distance=max_distance, angle=angle)
+    if sampling == 'xy':
+        indices = xy_feature_targets(targets, xy_tolerance=xy_tolerance,
+            normal_angle=normal_angle, z_tolerance=z_tolerance, max_gap=max_gap, max_distance=max_distance)
+    elif sampling == 'legacy':
+        indices = significant_targets(targets, max_gap=20 if max_gap is None else max_gap,
+            max_distance=.2 if max_distance is None else max_distance, angle=angle)
+    else:
+        raise ValueError("sampling must be 'xy' or 'legacy'")
+    selection_info = dict(sampling=sampling, keyframe_count=len(indices), target_count=len(targets),
+                          xy_tolerance=xy_tolerance if sampling == 'xy' else None)
     if not callable(base_candidates_per_target) and len(base_candidates_per_target) != len(targets):
         raise ValueError('Provide one candidate layer per target')
     cache = {}
@@ -192,7 +279,8 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=20,
     elif any(options.get(k) is not None for k in ('max_base_speed', 'max_yaw_speed', 'max_joint_speed')):
         raise ValueError('Speed constraints require time_intervals')
     else:
-        coordinates = np.r_[0., np.cumsum([np.linalg.norm(b.origin-a.origin) for a,b in zip(targets, targets[1:])])]
+        coordinates = (xy_feature_progress(targets, indices) if sampling == 'xy' else
+            np.r_[0., np.cumsum([np.linalg.norm(b.origin-a.origin) for a,b in zip(targets, targets[1:])])])
     fallback = False
     if len(indices) < len(targets):
         # Endpoint joint changes need not satisfy a single original-step bound.
@@ -208,10 +296,10 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=20,
             result = plan_mobile_base(targets, [[b] for b in bases], **options)
             if result.configurations:
                 result.diagnostics.append(dict(mode='sparse', keyframe_indices=indices,
-                    dense_fallback=False, total_seconds=perf_counter()-started))
+                    dense_fallback=False, total_seconds=perf_counter()-started, **selection_info))
                 return result
         fallback = True
     result = plan_mobile_base(targets, [layer(i) for i in range(len(targets))], **options)
     result.diagnostics.append(dict(mode='dense', keyframe_indices=indices,
-        dense_fallback=fallback, total_seconds=perf_counter()-started))
+        dense_fallback=fallback, total_seconds=perf_counter()-started, **selection_info))
     return result

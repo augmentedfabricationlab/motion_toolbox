@@ -4,6 +4,71 @@ import pytest
 from motion_toolbox.geometry import Plane
 from motion_toolbox.base_planning import plan_mobile_base
 from motion_toolbox.mobile_planning import significant_targets, interpolate_bases, plan_mobile_sparse
+from motion_toolbox.mobile_planning import xy_feature_targets, xy_feature_progress
+
+
+def square_with_ripple():
+    vertices = np.array([[0,0],[1,0],[1,1],[2,1],[2,0],[3,0]], dtype=float)
+    points = []
+    for a,b in zip(vertices, vertices[1:]):
+        chord = b-a
+        normal = np.array([-chord[1],chord[0]])
+        for f in np.linspace(0,1,200,endpoint=False):
+            points.append(a+f*chord+.01*np.sin(f*20*np.pi)*normal)
+    points.append(vertices[-1])
+    return [plane(*p) for p in points]
+
+
+def test_xy_features_ignore_ripples_but_keep_square_corners():
+    targets = square_with_ripple()
+    kept = xy_feature_targets(targets,xy_tolerance=.05)
+    assert len(kept) == 6
+    assert all(abs(a-b) <= 5 for a,b in zip(kept,[0,200,400,600,800,1000]))
+    points = np.array([t.origin[:2] for t in targets])
+    for a,b in zip(kept,kept[1:]):
+        chord = points[b]-points[a]
+        delta = points[a:b+1]-points[a]
+        f = np.clip(delta @ chord/(chord @ chord),0,1)
+        assert np.linalg.norm(delta-f[:,None]*chord,axis=1).max() <= .05
+    progress = xy_feature_progress(targets,kept)
+    assert np.all(np.diff(progress) >= 0)
+    assert progress[-1] == pytest.approx(5.,abs=.05)  # Uses simplified path length.
+
+
+def test_xy_features_ignore_height_and_tcp_roll_by_default():
+    targets = [Plane((0,0,i*.01),(1,0,0),(0,1,0)).rotated_z(i*.2) for i in range(101)]
+    assert xy_feature_targets(targets) == [0,100]
+    assert xy_feature_targets(targets,z_tolerance=.4) == [0,40,80,100]
+
+
+def test_square_wave_plans_keyframes_but_returns_and_checks_every_target():
+    targets = square_with_ripple()
+    seen = set()
+    layers_requested = []
+    def layer(i,t):
+        layers_requested.append(i)
+        return [plane(t.origin[0],t.origin[1]+j*.1) for j in range(4)]
+    def collision(q,b):
+        seen.add(round(q[0],8))
+        return True
+    indices = {tuple(t.origin):i for i,t in enumerate(targets)}
+    result = plan_mobile_sparse(targets,layer,ik_solver=lambda t,b:[[indices[tuple(t.origin)]*.001]],
+                                collision=collision)
+    assert len(result.base_planes) == len(result.configurations) == 1001
+    assert len(layers_requested) == 6
+    assert len(seen) == 1001
+    assert result.diagnostics[-1]['sampling'] == 'xy'
+    assert not result.diagnostics[-1]['dense_fallback']
+
+
+def test_xy_features_keep_reversals_and_projected_normal_changes():
+    assert xy_feature_targets([plane(0),plane(1),plane(0)]) == [0,1,2]
+    wall = Plane((0,0,0),(1,0,0),(0,0,-1))
+    reverse = Plane((0,0,0),(-1,0,0),(0,0,-1))
+    assert xy_feature_targets([wall,reverse,wall]) == [0,1,2]
+    assert xy_feature_targets([wall]*5) == [0,4]
+    with pytest.raises(ValueError):
+        xy_feature_targets([wall],xy_tolerance=0)
 
 
 def plane(x, y=0):
