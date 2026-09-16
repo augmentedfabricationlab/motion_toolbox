@@ -1,4 +1,5 @@
 """Bounded search for overlapping mobile sections with validated smooth joins."""
+from .runtime import check_deadline
 import numpy as np
 from .geometry import Plane, as_plane
 from .base_planning import BasePlan, plan_mobile_base
@@ -11,6 +12,7 @@ class _TransitionCache:
         self.hits = 0
 
     def check(self, q0,b0,q1,b1):
+        check_deadline('mobile_sections.check')
         key = (np.asarray(q0,dtype=float).tobytes(),b0.matrix.tobytes(),
                np.asarray(q1,dtype=float).tobytes(),b1.matrix.tobytes())
         if key not in self.cache:
@@ -27,6 +29,7 @@ class _TransitionCache:
 
 
 def _slice_options(options, start, end):
+    check_deadline('mobile_sections._slice_options')
     sliced = dict(options, _stop_on_unreachable=True)
     has_start = options.get('start_base') is not None
     if start:
@@ -40,11 +43,13 @@ def _slice_options(options, start, end):
 
 def blend_sections(previous, incoming, start):
     """Cubic smoothstep overlap, using the shortest yaw arc at each target."""
+    check_deadline('mobile_sections.blend_sections')
     overlap = len(previous)-start
     if overlap < 2:
         raise ValueError('At least two overlapping targets required')
     combined = list(previous[:start])
     for j,b in enumerate(incoming):
+        check_deadline('mobile_sections.blend_sections')
         if j >= overlap:
             combined.append(b)
             continue
@@ -73,6 +78,7 @@ def plan_mobile_sections(targets, proposals, arm_in_base, *, height=0., section_
     chooses mutually compatible arm configurations, including swept checks.
     Only complete, validated paths populate the returned output planes.
     """
+    check_deadline('mobile_sections.plan_mobile_sections')
     if int(section_size) != section_size or section_size < 4:
         raise ValueError('section_size must be an integer >= 4')
     if int(proposal_limit) != proposal_limit or proposal_limit < 1:
@@ -90,14 +96,17 @@ def plan_mobile_sections(targets, proposals, arm_in_base, *, height=0., section_
         options['transition_check'] = transition_cache.check
     library = []
     for _,arrays,metadata in proposals[:int(proposal_limit)]:
+        check_deadline('mobile_sections.plan_mobile_sections')
         library.append(([Plane((p[0],p[1],height),(*d,0),(*t,0)) for p,d,t in zip(*arrays)], metadata))
     beam, logs, checked = [], [], set()
     end, start = min(n,section_size), 0
     mount = as_plane(arm_in_base).origin
     while True:
+        check_deadline('mobile_sections.plan_mobile_sections')
         alternatives = []
         report = dict(start_target=start,end_target=end-1,valid_sections=0,joins_tested=0,rejections=[])
         for proposal_index,(planes,metadata) in enumerate(library):
+            check_deadline('mobile_sections.plan_mobile_sections')
             section = plan_mobile_base(targets[start:end], [[b] for b in planes[start:end]],
                                        **_slice_options(options,start,end))
             checked.update(start+i for i,c in enumerate(section.candidate_counts) if c is not None)
@@ -111,11 +120,13 @@ def plan_mobile_sections(targets, proposals, arm_in_base, *, height=0., section_
             report['valid_sections'] += 1
             prefixes = beam if start else [(None,None,[])]
             for previous,_,joins in prefixes:
+                check_deadline('mobile_sections.plan_mobile_sections')
                 combined = blend_sections(previous,planes[start:end],start) if start else planes[:end]
                 # Interpolation must retain placement constraints even for
                 # numeric callers without a robot adapter's base_valid callback.
                 valid = True
                 for target,base in zip(targets[:end],combined):
+                    check_deadline('mobile_sections.plan_mobile_sections')
                     arm = base.origin+mount[0]*base.xaxis+mount[1]*base.yaxis
                     delta = as_plane(target).origin[:2]-arm[:2]
                     if np.linalg.norm(delta)>1.75+1e-10 or delta @ as_plane(target).zaxis[:2] <= 0:
@@ -147,6 +158,7 @@ def plan_mobile_sections(targets, proposals, arm_in_base, *, height=0., section_
                       scope='bounded section/beam search; no complete path validated')])
         # Prefer smooth joins, not minimal total base travel.
         def roughness(item):
+            check_deadline('mobile_sections.roughness')
             poses = item[0]
             xy = np.array([b.origin[:2] for b in poses])
             yaw = np.unwrap([np.arctan2(b.xaxis[1],b.xaxis[0]) for b in poses])

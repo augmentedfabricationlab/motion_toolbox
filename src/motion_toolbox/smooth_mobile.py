@@ -1,4 +1,5 @@
 """Smooth wall-offset proposals followed by full-resolution robot validation."""
+from .runtime import check_deadline
 from time import perf_counter
 import numpy as np
 from .geometry import Plane, as_plane
@@ -7,6 +8,7 @@ from .base_planning import BasePlan, plan_mobile_base
 
 def moving_average(values, window):
     """Centred, endpoint-padded average in O(n), including even windows."""
+    check_deadline('smooth_mobile.moving_average')
     left = (window-1)//2
     padded = np.pad(values, ((left, window-1-left), (0, 0)), mode='edge')
     sums = np.vstack((np.zeros((1, values.shape[1])), np.cumsum(padded, axis=0)))
@@ -24,6 +26,7 @@ def smooth_offset_proposals(targets, arm_in_base, *, height=0., lateral_distance
     Reach checks include the calibrated arm mounting translation. Local normal
     offsets follow curved walls without assuming a circular workpiece.
     """
+    check_deadline('smooth_mobile.smooth_offset_proposals')
     targets = [as_plane(t) for t in targets]
     if not targets:
         raise ValueError('At least one target required')
@@ -47,6 +50,7 @@ def smooth_offset_proposals(targets, arm_in_base, *, height=0., lateral_distance
     mount = as_plane(arm_in_base).origin
     proposals, rejected = [], []
     for window in sorted(set(min(int(w), len(targets)) for w in windows)):
+        check_deadline('smooth_mobile.smooth_offset_proposals')
         centre = moving_average(xy, window)
         direction = moving_average(normals, window)
         norms = np.linalg.norm(direction, axis=1)
@@ -56,7 +60,9 @@ def smooth_offset_proposals(targets, arm_in_base, *, height=0., lateral_distance
         direction /= norms[:, None]
         tangent = np.column_stack((-direction[:, 1], direction[:, 0]))
         for offset in distances:
+            check_deadline('smooth_mobile.smooth_offset_proposals')
             for lateral in lateral_offsets:
+                check_deadline('smooth_mobile.smooth_offset_proposals')
                 footprint = centre-offset*direction+lateral*tangent
                 arm_xy = footprint+mount[0]*direction+mount[1]*tangent
                 relative = xy-arm_xy
@@ -88,6 +94,7 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
                        wall_distances=(.4,.6,.8,1.,1.2), lateral_offsets=None, max_attempts=12, repair_attempts=8, connect_sections=True,
                        section_size=100, section_proposals=6, section_beam_width=2, **options):
     """Try a bounded set of globally smooth paths with every original TCP checked."""
+    check_deadline('smooth_mobile.plan_smooth_mobile')
     if int(max_attempts) != max_attempts or max_attempts < 1:
         raise ValueError('smooth_max_attempts must be a positive integer')
     if int(repair_attempts) != repair_attempts or repair_attempts < 0:
@@ -105,21 +112,26 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
     # remaining budget on more distances from the same family.
     groups = {}
     for proposal in proposals:
+        check_deadline('smooth_mobile.plan_smooth_mobile')
         meta = proposal[2]
         groups.setdefault((meta['window'], np.sign(meta['lateral_metres'])), []).append(proposal)
     # Start each family near one metre of wall clearance, then explore other
     # clearances. Tiny score differences must not exclude useful distances.
     for group in groups.values():
+        check_deadline('smooth_mobile.plan_smooth_mobile')
         group.sort(key=lambda p: (abs(p[2]['wall_distance_metres']-1.), p[0]))
     ordered = []
     while any(groups.values()):
+        check_deadline('smooth_mobile.plan_smooth_mobile')
         for group in groups.values():
+            check_deadline('smooth_mobile.plan_smooth_mobile')
             if group:
                 ordered.append(group.pop(0))
     best = None
     checked_any = set()
 
     def evaluate(arrays, metadata):
+        check_deadline('smooth_mobile.evaluate')
         bases = [Plane((p[0], p[1], height), (*d, 0), (*t, 0)) for p,d,t in zip(*arrays)]
         solved = plan_mobile_base(targets, [[b] for b in bases], **options)
         checked_any.update(i for i,n in enumerate(solved.candidate_counts) if n is not None)
@@ -133,6 +145,7 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
         return progress, solved, arrays, dict(metadata), len(history)-1
 
     for _, arrays, metadata in ordered[:int(max_attempts)]:
+        check_deadline('smooth_mobile.plan_smooth_mobile')
         attempt = evaluate(arrays, metadata)
         if best is None or attempt[0] > best[0] or attempt[1].configurations:
             best = attempt
@@ -146,6 +159,7 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
             beam_width=section_beam_width, **options)
         section_diagnostics = list(joined.diagnostics)
         for diagnostic in section_diagnostics:
+            check_deadline('smooth_mobile.plan_smooth_mobile')
             checked_any.update(diagnostic.get('checked_target_indices',[]))
         if joined.configurations:
             checked_any.update(range(len(targets)))
@@ -159,6 +173,7 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
              ((size,0),(-size,0),(0,size),(0,-size))]
     move_index = 0
     for _ in range(int(repair_attempts)):
+        check_deadline('smooth_mobile.plan_smooth_mobile')
         if best is None or best[1].configurations:
             break
         index, _, arrays, metadata, _ = best

@@ -1,4 +1,5 @@
 """Complete robot-object planning workflow shared by scripts and Grasshopper."""
+from .runtime import check_deadline, component_deadline
 from motion_toolbox.recording import recorded
 from contextlib import ExitStack
 from functools import partial
@@ -9,13 +10,14 @@ from .geometry import Plane, as_plane
 from .robot_adapter import kinematics_from_robot, configuration_from_values, resolve_arm_joint_names, _active_tool
 from .planning import calculate_partial_trajectory
 
-ROBOT_COMPONENT_VERSION = 16
+ROBOT_COMPONENT_VERSION = 17
 
 
 def json_input(value, default=None):
     return default if value is None or (isinstance(value, str) and not value.strip()) else json.loads(value) if isinstance(value, str) else value
 
 
+@component_deadline
 @recorded
 def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_joint_names=None,
                collision_meshes=(), model_units_to_metres=1.0, *,
@@ -36,6 +38,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
     mobile_options enables base search around supplied base-plane seeds; see
     mobile_planning.plan_mobile_robot_path. Search lengths use metres/radians.
     """
+    check_deadline('robot_planning.plan_robot')
     started = perf_counter()
     if robot is None:
         raise ValueError('Connect a robot object')
@@ -74,6 +77,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
     all_values.update(fixed)
     supplied_fixed.update(fixed)
     for n, v in all_values.items():
+        check_deadline('robot_planning.plan_robot')
         if not math.isfinite(v):
             raise ValueError('Nonfinite joint value: ' + n)
     base_items = list(bases) if bases is not None else []
@@ -120,6 +124,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
                 constructor.setdefault('check_static_self_collisions', False)
                 world = stack.enter_context(PybulletServer(robot=robot, joint_names=names, **constructor))
                 for mesh in meshes:
+                    check_deadline('robot_planning.plan_robot')
                     world.add_mesh(mesh, scale=model_units_to_metres)
                 if 'ground_z' in settings:
                     world.add_ground(settings['ground_z'], support_links=settings.get('support_links', ()))
@@ -148,6 +153,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
     types = [model_joints[n].type for n in output_names]
     objects = []
     for q in result['configurations']:
+        check_deadline('robot_planning.plan_robot')
         values = dict(all_values, **dict(zip(names, q)))
         objects.append(configuration_from_values([values[n] for n in output_names], output_names, types))
     result['configuration_objects'] = objects

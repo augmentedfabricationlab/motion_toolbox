@@ -4,6 +4,7 @@ Target +Z points away from the robot. The calibrated arm-base origin must be
 strictly behind every target and within max_distance of every target origin.
 The footprint is recovered from that arm origin for each sampled base heading.
 """
+from .runtime import check_deadline
 from motion_toolbox.recording import recorded
 import math
 import numpy as np
@@ -12,6 +13,7 @@ from .geometry import Plane, as_plane
 
 def _clip(polygon, normal, bound):
     """Intersect a convex polygon with normal.dot(x) <= bound."""
+    check_deadline('stationary_region._clip')
     if len(polygon) == 0:
         return polygon
     values = polygon @ normal - bound
@@ -22,6 +24,7 @@ def _clip(polygon, normal, bound):
         return np.empty((0, 2))
     output = []
     for i, point in enumerate(polygon):
+        check_deadline('stationary_region._clip')
         previous = polygon[i-1]
         if inside[i] != inside[i-1]:
             fraction = values[i-1] / (values[i-1]-values[i])
@@ -61,6 +64,7 @@ class StationaryRegion:
         self.side_epsilon = 1e-6
 
     def metrics(self, base):
+        check_deadline('stationary_region.metrics')
         base = as_plane(base)
         arm = (base.matrix @ self._mount_matrix)[:3, 3]
         delta = arm-self.points
@@ -81,8 +85,10 @@ class StationaryRegion:
             geometry_valid=not wrong_side and not too_far)
 
     def _behind(self, polygon, distance):
+        check_deadline('stationary_region._behind')
         if self.projected:
             for normal, norm, point, target in zip(self.normals, self.horizontal_norms, self.xy, self.points):
+                check_deadline('stationary_region._behind')
                 if norm <= 1e-9:
                     if normal[2]*(self.height-target[2]) >= -self.side_epsilon:
                         return np.empty((0, 2))
@@ -95,6 +101,7 @@ class StationaryRegion:
         bounds = np.einsum('ij,ij->i', self.normals[:, :2], self.xy)
         bounds += self.normals[:, 2]*(self.points[:, 2]-self.height)-distance
         for normal, bound in zip(self.normals[:, :2], bounds):
+            check_deadline('stationary_region._behind')
             polygon = _clip(polygon, normal, bound)
             if not len(polygon):
                 break
@@ -102,6 +109,7 @@ class StationaryRegion:
 
     @recorded
     def polygon(self):
+        check_deadline('stationary_region.polygon')
         radii_squared = np.full(len(self.points), self.max_distance**2) if self.projected else self.max_distance**2-(self.points[:, 2]-self.height)**2
         if np.any(radii_squared < 0):
             return np.empty((0, 2)), 'Target height exceeds {} m reach limit at this arm-base height.'.format(self.max_distance)
@@ -118,10 +126,12 @@ class StationaryRegion:
         angles = (np.arange(sides)+.5)*2*math.pi/sides
         normals = np.column_stack((np.cos(angles), np.sin(angles)))
         for point, radius in zip(self.xy, radii):
+            check_deadline('stationary_region.polygon')
             inradius = radius*math.cos(math.pi/sides)
             if np.all(np.linalg.norm(polygon-point, axis=1) <= inradius):
                 continue
             for normal in normals:
+                check_deadline('stationary_region.polygon')
                 polygon = _clip(polygon, normal, normal @ point + inradius)
                 if not len(polygon):
                     return polygon, 'No common sampled region satisfies every target side and distance constraint.'
@@ -135,6 +145,7 @@ class StationaryRegion:
         Also sample inward positions, the region boundary and its XY interior.
         Every proposed footprint is rechecked against the exact 3D constraints.
         """
+        check_deadline('stationary_region.candidates')
         if not math.isfinite(spacing) or spacing <= 0:
             raise ValueError('Positive finite grid spacing required')
         if int(yaw_steps) != yaw_steps or yaw_steps < 1:
@@ -145,6 +156,7 @@ class StationaryRegion:
         lo, hi = self.side_epsilon, self.max_distance
         farthest = polygon
         for _ in range(32):
+            check_deadline('stationary_region.candidates')
             middle = (lo+hi)/2
             clipped = self._behind(polygon, middle)
             if len(clipped):
@@ -161,6 +173,7 @@ class StationaryRegion:
         boundary = []
         if cumulative[-1] > 1e-12:
             for value in np.linspace(0, cumulative[-1], 16, endpoint=False):
+                check_deadline('stationary_region.candidates')
                 i = min(np.searchsorted(cumulative, value, side='right')-1, len(polygon)-1)
                 t = (value-cumulative[i])/max(lengths[i], 1e-12)
                 boundary.append(closed[i]*(1-t)+closed[i+1]*t)
@@ -169,11 +182,13 @@ class StationaryRegion:
         samples = seed_points + boundary + [np.array((x,y)) for x in axes[0] for y in axes[1]]
         result, guesses, seen, standoffs = [], [], set(), {}
         for i, point in enumerate(samples):
+            check_deadline('stationary_region.candidates')
             arm_xy = point+self.center
             toward = -point
             facing = math.atan2(toward[1], toward[0]) if np.linalg.norm(toward) > 1e-8 else 0.0
             facing -= math.atan2(self.mount.xaxis[1], self.mount.xaxis[0])
             for yaw in facing + np.arange(int(yaw_steps))*2*math.pi/yaw_steps:
+                check_deadline('stationary_region.candidates')
                 c, s = math.cos(yaw), math.sin(yaw)
                 offset = np.array([c*self.mount.origin[0]-s*self.mount.origin[1],
                                    s*self.mount.origin[0]+c*self.mount.origin[1]])

@@ -1,4 +1,5 @@
 """Shared mobile transition checks and explanations (metres, radians, seconds)."""
+from .runtime import check_deadline
 import math
 import numpy as np
 
@@ -11,10 +12,12 @@ class MobileTransitions:
         self.reset()
 
     def reset(self):
+        check_deadline('mobile_transitions.reset')
         self.rejections = {}
         self.examples = {}
 
     def reject(self, name, count=1, **example):
+        check_deadline('mobile_transitions.reject')
         self.rejections[name] = self.rejections.get(name, 0)+int(count)
         self.examples.setdefault(name, example)
 
@@ -24,6 +27,7 @@ class MobileTransitions:
         Cheap bounds are evaluated in arrays before any swept collision query.
         All admissible predecessors are returned; callers may stop after one.
         """
+        check_deadline('mobile_transitions.reachable')
         o = self.options
         if previous is not self.previous:
             self.previous = previous
@@ -44,6 +48,7 @@ class MobileTransitions:
         keep = np.ones(len(previous), dtype=bool)
 
         def bound(name, values, limit):
+            check_deadline('mobile_transitions.bound')
             if limit is None:
                 return
             exceeded = values > np.asarray(limit)
@@ -66,6 +71,7 @@ class MobileTransitions:
             bound('joint_speed', delta/dt, o['max_joint_speed'])
         callback = o['transition_check']
         for a in np.flatnonzero(keep):
+            check_deadline('mobile_transitions.reachable')
             if callback is not None:
                 oldq, oldbase = previous[a]
                 key = (np.asarray(oldq, dtype=float).tobytes(), oldbase.matrix.tobytes(),
@@ -85,6 +91,7 @@ class MobileTransitions:
             yield int(a)
 
     def diagnostic(self, i):
+        check_deadline('mobile_transitions.diagnostic')
         return dict(reason='transition_blocked', from_target=i-1 if i else 'start',
                     to_target=i, rejection_counts=dict(self.rejections),
                     constraint_examples=dict(self.examples),

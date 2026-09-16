@@ -72,7 +72,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.12':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.13':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -91,7 +91,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 16
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 17
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -212,6 +212,9 @@ except Exception as error:
     path_cost, result, unreachable_points = None, None, []
     timings, diagnostics = {}, []
     status = '{}: {}'.format(type(error).__name__, error)
+    if getattr(error, 'timed_out', False):
+        timings = {'timed_out': True, 'total_seconds': error.elapsed_seconds}
+        diagnostics = [str(error), 'Stopped during: ' + error.stage]
 
 # Primary output for the downstream arm-planning component.
 base_planes = base_result

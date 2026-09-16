@@ -10,6 +10,21 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.13 - 2026-09-16
+
+- Add a hardcoded 2,700-second elapsed deadline to the shared robot-planning
+  entrypoint. Proposals, section joining, local repairs and nested calls share
+  one budget; cancellation checks cover candidate, graph and collision loops.
+- Unwind resources on timeout and return clear timeout status, stage and elapsed
+  timing with empty paths from both Grasshopper robot-planning scripts. A new
+  invocation gets a fresh deadline. No dependencies added.
+- Cancellation is cooperative between operations, not a forced Rhino thread
+  termination; an in-progress native call and cleanup can exceed the deadline.
+- Validation: 216 full-suite tests passed, followed by eight focused deadline
+  tests including both real component scripts, nested budgets, cleanup and loop
+  interruption. Synthetic 1,607-target benchmark preserved all outputs and
+  1,607 IK/collision plus 1,606 transition calls. No 45-minute live Rhino run.
+
 ## 0.1.12 - 2026-09-16
 
 - Add overlapping partial-path construction and connection after whole smooth
