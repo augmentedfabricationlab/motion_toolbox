@@ -10,6 +10,26 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.18 - 2026-09-16
+
+- Make the dedicated mobile Grasshopper component use an adaptive wall/lateral
+  offset and yaw roadmap. Insert failing original targets, retain useful distant
+  regions and solve arm continuity over the complete trajectory. Existing shared
+  API strategy defaults and exact discrete planning remain unchanged.
+- Smooth successful base paths only when calibrated branch continuation passes
+  all original placement, joint, configuration and swept-transition constraints.
+  Add an independent saved-result auditor using captured URDF PyBullet FK at
+  every original target; retain source hashes and reproducible replay metadata.
+- Solve the exported 1,607-target fabrication case with a connected arm path.
+  Independent full-target/full-transition audit passes, including captured tool,
+  body and environment collision checks. The capture supplies no speed timing;
+  this validates a geometric trajectory, not a timed controller program.
+- Refresh cached Grasshopper dependencies and version gates automatically; no
+  repasting of the filepath-loaded component is required. No new dependency or
+  shared planning API timeout is introduced.
+- Validation: 237 tests passed, including failed-target refinement, disconnected
+  joins, full smoothing revalidation and retained start-speed constraints.
+
 ## 0.1.17 - 2026-09-16
 
 - Refine analytic UR branches against recognized URDF controller/tool0 chains,

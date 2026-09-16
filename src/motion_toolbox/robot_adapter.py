@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from .geometry import as_plane, Plane, to_compas
 
 
-STATIONARY_ADAPTER_VERSION = 4
+STATIONARY_ADAPTER_VERSION = 5
 
 
 DEFAULT_ARM_JOINT_NAMES = (

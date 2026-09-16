@@ -33,7 +33,12 @@ Optional arguments:
 and periodic stack samples. A completed worker writes `result.json`, including
 per-target states, diagnostic failures, timing, source hashes at worker start,
 loaded-code fingerprints, version and whether source changed during execution.
-`fk_audit.json` independently compares sampled analytic IK solutions against
+Current repository replay uses calibrated URDF refinement; `--captured-source`
+retains the captured solver, including its original nominal model. Override the
+captured strategy with a settings file containing `{"strategy":"adaptive"}` to
+run the current component default on an older capture.
+
+`fk_audit.json` independently compares sampled IK solutions against
 the captured URDF's tool0 FK with the captured TCP applied. A calibrated URDF
 can differ from the nominal six-parameter analytic model: inspect this audit
 before treating analytic reachability as model-accurate target attainment.
@@ -41,3 +46,12 @@ before treating analytic reachability as model-accurate target attainment.
 Worker completion does not imply a successful plan. A prefix is never a full
 fabrication trajectory, and a sampled FK audit is not all-target validation.
 No failed bounded search proves that no feasible base path exists.
+
+For an independent all-target audit of a successful saved result, run
+`validation/audit_mobile_result.py CASE RESULT --output AUDIT.json` in a bounded
+subprocess (for example `subprocess.run([...], timeout=90, check=True)`). It
+reconstructs the captured collision world, checks all original targets and
+transitions, and compares every TCP with PyBullet's URDF link FK plus the captured
+tool transform. The report records rejection details, limits, reach margins,
+smoothness, FK errors and input/source hashes. Sampled swept collision checking
+uses the captured resolutions; speed checks apply only when timing is supplied.

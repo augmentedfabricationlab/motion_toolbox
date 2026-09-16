@@ -248,7 +248,36 @@ native call must return before it can be cancelled; this does not forcibly kill
 Rhino threads, and a native call holding Python's GIL can delay Python execution.
 `grasshopper.py` and direct/shared planning APIs have no automatic time limit.
 
-`grasshopper_mobile_base.py` now defaults to `strategy:"smooth_offset"`.
+`grasshopper_mobile_base.py` now defaults to `strategy:"adaptive"`.
+It smooths the world-XY target trend and local normals, searches varying wall
+offset, lateral offset and yaw controls together with arm branches, and adds
+control points where full-resolution validation fails. Good distant regions
+are retained while overlapping neighbourhoods of failures are searched again.
+Only a connected, fully checked path returns output frames. A final smoothing
+pass is accepted only after repeating target, placement, joint and swept-edge
+validation; otherwise the already valid path is retained.
+
+```json
+{"strategy":"adaptive", "adaptive_window":50,
+ "adaptive_knot_gap":20, "adaptive_rounds":8}
+```
+
+Default candidate wall distances are `[0.6,0.8,1.0,1.2,1.4]` metres; lateral
+offsets start at `[0.6,0.8,1.0,1.2]` metres and mirror to the other side if needed.
+`wall_distances`, `lateral_offsets` and `yaw_offsets` override the search domain;
+default heading offsets are `[-0.3,0,0.3]` radians from the smoothed wall normal.
+The sparse roadmap is a proposal generator, not a validation shortcut. Original
+motion constraints are applied to every original target and adjacent transition.
+Recognized URDF UR chains use calibrated FK refinement of analytic IK branches,
+including the actual TCP and independent arm mounting transform.
+
+See [offline replay instructions](validation/MOBILE_REPLAY.md) for bounded,
+killable testing using exported assets without Rhino. A successful geometric
+plan is not a timed controller trajectory; speed bounds require supplied timing.
+
+#### Fixed-offset smooth proposal strategy
+
+Set `strategy:"smooth_offset"` to retain the previous whole-path proposal search.
 The planner creates whole smooth paths first, then validates the robot on each
 path. It does not minimize base travel or choose independent per-target bases.
 Footprint **+X faces the wall**; the roughly one-metre offset is along footprint
@@ -256,7 +285,7 @@ Footprint **+X faces the wall**; the roughly one-metre offset is along footprint
 Offsets are measured from the footprint; reach is checked from the calibrated
 arm origin, with maximum XY reach 1.75 m and the required negative-TCP-Z side.
 
-Default `mobile_options` (metres regardless of Rhino document units):
+Fixed-offset strategy defaults (metres regardless of Rhino document units):
 
 ```json
 {"strategy":"smooth_offset", "lateral_distance":1.0,
@@ -309,7 +338,7 @@ strategy only. Compare synthetic timing with `benchmarks/smooth_mobile_benchmark
 Use `{"strategy":"discrete","sparse":true}` in the dedicated component for
 the previous regional search, or `{"strategy":"discrete","sparse":false}`
 for uncapped full-domain search. The general numeric adapter retains its existing
-discrete default unless `strategy:"smooth_offset"` is explicitly supplied.
+discrete default unless `strategy:"smooth_offset"` or `strategy:"adaptive"` is explicitly supplied.
 
 Sparse mode simplifies **world XY positions** with `xy_tolerance=0.05`
 metres by default. Small sinusoidal ripples within that geometric tolerance can

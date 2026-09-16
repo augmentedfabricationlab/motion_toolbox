@@ -157,13 +157,13 @@ try:
     import motion_toolbox.robot_adapter as adapter
     toolbox_loaded_from = str(Path(adapter.__file__).resolve())
     required = {'fixed_joint_values', 'arm_joint_names'}
-    if (getattr(adapter, 'STATIONARY_ADAPTER_VERSION', 0) < 4 or
+    if (getattr(adapter, 'STATIONARY_ADAPTER_VERSION', 0) < 5 or
         not required.issubset(inspect.signature(adapter.kinematics_from_robot).parameters)):
         # Rhino retains Python modules between component recomputes. Refresh the
         # adapter only when its cached API is older than this component requires.
         importlib.invalidate_caches()
         adapter = importlib.reload(adapter)
-    if (getattr(adapter, 'STATIONARY_ADAPTER_VERSION', 0) < 4 or
+    if (getattr(adapter, 'STATIONARY_ADAPTER_VERSION', 0) < 5 or
         not required.issubset(inspect.signature(adapter.kinematics_from_robot).parameters)):
         raise RuntimeError('Outdated toolbox file: {}. Set toolbox_src to the updated motion_toolbox/src directory and restart Rhino.'.format(
             toolbox_loaded_from))

@@ -39,7 +39,7 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     """
     from .planning import rotation_offsets
     settings = dict(settings)
-    allowed = {'connect_sections', 'section_size', 'section_proposals', 'section_beam_width', 'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
+    allowed = {'adaptive_window','adaptive_knot_gap','adaptive_rounds', 'connect_sections', 'section_size', 'section_proposals', 'section_beam_width', 'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
                'lateral_offsets', 'smooth_max_attempts', 'smooth_repair_attempts',
                'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
                'sampling', 'xy_tolerance', 'normal_angle', 'z_tolerance',
@@ -50,15 +50,20 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     if unknown:
         raise ValueError('Unknown mobile options: ' + ', '.join(sorted(unknown)))
     strategy = settings.pop('strategy', 'discrete')
-    if strategy not in ('discrete', 'smooth_offset'):
-        raise ValueError('strategy must be discrete or smooth_offset')
+    if strategy not in ('discrete', 'smooth_offset', 'adaptive'):
+        raise ValueError('strategy must be discrete, smooth_offset or adaptive')
+    adaptive = {name:settings.pop(key) for key,name in (
+        ('adaptive_window','window'),('adaptive_knot_gap','knot_gap'),('adaptive_rounds','rounds')) if key in settings}
+    if adaptive and strategy!='adaptive':
+        raise ValueError('Adaptive settings require strategy=adaptive')
+    adaptive_yaw = settings.get('yaw_offsets',(-.3,0.,.3))
     smooth = {name: settings.pop(key) for key,name in (
         ('connect_sections','connect_sections'), ('section_size','section_size'),
         ('section_proposals','section_proposals'), ('section_beam_width','section_beam_width'),
         ('lateral_distance','lateral_distance'), ('wall_distances','wall_distances'),
         ('smoothing_windows','windows'), ('lateral_offsets','lateral_offsets'),
         ('smooth_max_attempts','max_attempts'), ('smooth_repair_attempts','repair_attempts')) if key in settings}
-    if smooth and strategy != 'smooth_offset':
+    if smooth and strategy not in ('smooth_offset','adaptive'):
         raise ValueError('Smooth path settings require strategy=smooth_offset')
     sparse = settings.pop('sparse', False)
     use_region = settings.pop('placement_region', False)
@@ -107,7 +112,15 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
         return [Plane(seed.origin + np.r_[offset, 0.], seed.xaxis, seed.yaxis).rotated_z(a)
                 for offset in xy for a in yaw]
     started = perf_counter()
-    if strategy == 'smooth_offset':
+    if strategy == 'adaptive':
+        from .adaptive_mobile import plan_adaptive_mobile
+        if not use_region:
+            raise ValueError('adaptive requires placement_region=true')
+        adaptive.update({k:v for k,v in smooth.items() if k in ('wall_distances','lateral_offsets')})
+        adaptive['yaw_offsets'] = adaptive_yaw
+        solved = plan_adaptive_mobile(targets,options['ik_solver'].arm_in_base,
+                                     height=height,**adaptive,**options)
+    elif strategy == 'smooth_offset':
         from .smooth_mobile import plan_smooth_mobile
         if not use_region:
             raise ValueError('smooth_offset requires placement_region=true')
