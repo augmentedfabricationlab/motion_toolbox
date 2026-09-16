@@ -27,3 +27,8 @@ def test_lazy_checks_every_selected_edge_including_start_and_reuses_checks():
     result = lazy_shortest_path(layers, start=[0.], edge_valid=edge, count_paths=False)
     assert len(result.configurations) == 10
     assert calls == [(0,-1,0)] + [(i,0,0) for i in range(1,10)]
+
+
+def test_lazy_does_not_claim_counts_for_untested_edges():
+    with pytest.raises(ValueError, match='cannot count'):
+        lazy_shortest_path([[[0]],[[0]]], edge_valid=lambda *a: True, count_paths=True)

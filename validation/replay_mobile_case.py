@@ -20,6 +20,8 @@ def load_case(folder):
     if not (folder / 'READY').is_file():
         raise ValueError('Capture is not READY')
     manifest = json.loads((folder / 'manifest.json').read_text())
+    if not {'case.json','robot/robot.urdf'} <= set(manifest):
+        raise ValueError('Manifest must include case.json and robot/robot.urdf')
     for name, expected in manifest.items():
         path = (folder / name).resolve()
         if folder not in path.parents or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
@@ -94,6 +96,10 @@ def worker(args):
     # The harness persists its own inputs/fingerprints/results. Avoid creating
     # a separate automatic research recording for each scene construction call.
     os.environ['TOOLBOX_RECORDING'] = '0'
+    source_root = (Path(args.case)/'source' if args.captured_source else Path(__file__).resolve().parents[1]/'src')
+    sys.path.insert(0, str(source_root.resolve()))
+    source_hashes = {str(p.relative_to(source_root)):hashlib.sha256(p.read_bytes()).hexdigest()
+                     for p in source_root.rglob('*.py')}
     import faulthandler
     faulthandler.dump_traceback_later(60, repeat=True)
     from functools import partial
@@ -159,13 +165,17 @@ def worker(args):
     result['replay_metadata'] = dict(settings=settings, elapsed_seconds=time.perf_counter()-started,
         cpu_seconds=time.process_time()-cpu_started,
         case_sha256=hashlib.sha256((Path(args.case)/'case.json').read_bytes()).hexdigest(),
-        source_sha256={str(p.relative_to(Path(__file__).resolve().parents[1])):hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in (Path(__file__).resolve().parents[1]/'src').rglob('*.py')},
+        source_sha256_at_start=source_hashes,
+        source_changed_during_run=any(hashlib.sha256((source_root/p).read_bytes()).hexdigest()!=h
+                                     for p,h in source_hashes.items()),
         executable=sys.executable, fixed_joint_values=r['fixed_joint_values'],
         arm_joint_names=r['arm_joint_names'], collision_options=c)
     result['replay_metadata'].update(original_target_count=len(r['targets']), tested_target_count=len(targets),
         complete_original_path=len(result['configurations']) == len(r['targets']))
     result['forward_kinematics_audit'] = audit
+    from motion_toolbox.recording import loaded_versions
+    from motion_toolbox import __version__
+    result['replay_metadata'].update(toolbox_version=__version__, loaded_versions=loaded_versions())
     def encode(obj):
         if isinstance(obj, Plane): return obj.to_dict()
         if isinstance(obj, np.ndarray): return obj.tolist()
@@ -186,8 +196,11 @@ def main():
     parser.add_argument('--settings-file')
     parser.add_argument('--proposal-file')
     parser.add_argument('--target-count', type=int)
+    parser.add_argument('--captured-source', action='store_true')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.timeout <= 0 or (args.target_count is not None and args.target_count < 1):
+        parser.error('Timeout and target count must be positive')
     if args.settings_file:
         args.settings = Path(args.settings_file).read_text(encoding='utf-8-sig')
     json.loads(args.settings)
@@ -201,6 +214,8 @@ def main():
         command.extend(['--proposal-file', str(Path(args.proposal_file).resolve())])
     if args.target_count:
         command.extend(['--target-count', str(args.target_count)])
+    if args.captured_source:
+        command.append('--captured-source')
     started = time.perf_counter()
     with (Path(args.output)/'worker.log').open('w') as log:
         process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT,

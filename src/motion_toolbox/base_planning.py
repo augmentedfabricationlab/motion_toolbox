@@ -589,6 +589,18 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
             previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a]]
             q, base = states[i][b]
             return next(cheap_transition.reachable(i, previous, q, base), None) is not None
+        # A fixed base proposal per target has identical base bounds for every
+        # arm branch. Screen those once; graph max_step already screens joints.
+        fixed_base_path = all(all(b is layer[0][1] for _,b in layer) for layer in states)
+        if fixed_base_path and all(v is None for v in (max_base_speed,max_yaw_speed,max_joint_speed)):
+            path_bases = ([start_base] if start is not None else [])+[layer[0][1] for layer in states]
+            base_bounds_ok = all(
+                (max_base_step is None or np.linalg.norm(b.origin-a.origin) <= max_base_step) and
+                (max_yaw_step is None or abs((math.atan2(b.xaxis[1],b.xaxis[0])-
+                    math.atan2(a.xaxis[1],a.xaxis[0])+math.pi)%(2*math.pi)-math.pi) <= max_yaw_step)
+                for a,b in zip(path_bases,path_bases[1:]))
+            if base_bounds_ok:
+                cheap_edge = None
         solved = lazy_shortest_path(numeric, edge_valid=edge, cheap_edge_valid=cheap_edge, **graph_options)
     chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
     blocked = []

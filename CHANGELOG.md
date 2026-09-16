@@ -10,6 +10,21 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.16 - 2026-09-16
+
+- Screen common base step bounds once for fixed smooth proposals; retain exact
+  per-edge checks for variable bases and speed constraints. Reject requests to
+  count paths when lazy validation leaves alternative edges untested.
+- Add captured-source comparisons, prefix-only runs, independent sampled URDF
+  FK audits, loaded-code fingerprints and capture integrity tests to replay.
+- Synchronize Grasshopper entrypoint version checks with the package version.
+- Validation: 230 tests passed, including exact lazy/eager path comparisons,
+  collision/continuity checks, capture integrity and component entrypoints.
+- Captured-source replay confirms that the original 100-point/+1 m lateral/
+  1 m wall proposal also blocks at transition 1060 to 1061: all 512 tested
+  predecessor pairs exceed the 2.5 rad joint-step bound. This is a proposal
+  failure, not proof of global infeasibility. No fabrication-ready path claimed.
+
 ## 0.1.15 - 2026-09-16
 
 - Defer expensive mobile swept-edge checks to complete candidate trajectories,

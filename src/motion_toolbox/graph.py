@@ -21,6 +21,9 @@ def lazy_shortest_path(layers, *, edge_valid, cheap_edge_valid=None, lazy_rounds
     number of proposals the ordinary exact search checks remaining edges. This
     changes evaluation order only; costs, limits and predecessor ties agree.
     """
+    options.setdefault('count_paths', False)
+    if options['count_paths']:
+        raise ValueError('Lazy validation cannot count untested alternative paths')
     checked = {}
     def validate(i, a, b):
         key = (i, a, b)
