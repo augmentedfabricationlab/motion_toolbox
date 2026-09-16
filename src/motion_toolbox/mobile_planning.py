@@ -322,7 +322,28 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
                     dense_fallback=False, total_seconds=perf_counter()-started, **selection_info))
                 return result
         fallback = True
-    result = plan_mobile_base(targets, [layer(i) for i in range(len(targets))], **options)
+    class DenseLayers:
+        def __len__(self):
+            return len(targets)
+        def __iter__(self):
+            return (layer(i) for i in range(len(targets)))
+    # Only bounded candidate search needs continuity-aware pruning. Explicit
+    # uncapped search retains its exact supplied-domain semantics.
+    connected = options.get('max_feasible_bases') is not None
+    limits, repairs = {}, []
+    for attempt in range(3):
+        result = plan_mobile_base(targets, DenseLayers(), **dict(options,
+            _connected_candidates=connected, _base_limits=limits, _stop_on_unreachable=True))
+        blocked = next((d for d in result.diagnostics if d.get('reason') == 'transition_blocked'), None)
+        if result.configurations or not connected or blocked is None or attempt == 2:
+            break
+        boundary = blocked['to_target']
+        cap = max(options['max_feasible_bases'], 16 if attempt == 0 else 64)
+        for j in range(max(0, boundary-2), boundary+1):
+            limits[j] = cap
+        repairs.append(dict(blocked_transition=blocked, expanded_targets=sorted(limits), base_limit=cap))
+    if repairs:
+        result.diagnostics.append(dict(local_repairs=repairs))
     result.diagnostics.append(dict(mode='dense', keyframe_indices=indices,
         dense_fallback=fallback, total_seconds=perf_counter()-started, **selection_info))
     return result

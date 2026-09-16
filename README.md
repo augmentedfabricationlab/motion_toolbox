@@ -288,6 +288,18 @@ The latter accepts lazy candidate layers and optional collision/transition
 callbacks. Run `benchmarks/mobile_benchmark.py` for a synthetic comparison;
 real robot and obstacle timings depend on the scene and candidate count.
 
+Bounded sparse fallback retains states connected to the preceding target before
+counting them toward `max_feasible_bases`. It first tries continuing previous
+footprints, then the regional candidates. A blocked transition triggers up to
+two local expansions (16, then 64 bases) at that target and its two predecessors;
+IK results are reused. Exhausting this bounded search is not proof that no
+physical path exists. Uncapped supplied-domain search remains exact.
+Failures report the zero-based target pair, rejection counts, measured values
+and limits for base/joint steps and speeds, and available collision-pair details.
+Counts identify the first violated constraint per tested pair; an arbitrary
+transition callback without collision details is reported as `transition_check`.
+The fallback stops at a blocked prefix and marks later targets untested.
+
 Minimum-cost graph search tests transitions in cost order and stops when it
 finds the best valid predecessor. It preserves the same optimum and tie order;
 selected transitions receive the same collision sampling. Exact path-count

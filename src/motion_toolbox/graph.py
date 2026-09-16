@@ -10,6 +10,8 @@ class GraphResult:
     indices: list
     cost: float
     path_count: int = 0
+    failure_layer: int = None
+    reachable_indices: tuple = ()
 
 
 def _winding_layer(previous, current, costs, counts, weights, limits, count_paths):
@@ -174,7 +176,8 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
                     next_counts[b] = sum(counts[a] for a in indices)
             if not np.isfinite(next_costs).any():
                 event('graph.disconnected', layer=i)
-                return GraphResult([], [], float('inf'))
+                return GraphResult([], [], float('inf'), failure_layer=i,
+                                   reachable_indices=tuple(int(a) for a in active))
             event('graph.layer', layer=i, reachable_nodes=int(np.isfinite(next_costs).sum()),
                   minimum_cost=float(np.min(next_costs)), algorithm='indexed')
             costs, counts = next_costs, next_counts
@@ -209,7 +212,8 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
             pred[offset:offset+len(block)] = chosen
         if not np.isfinite(next_costs).any():
             event('graph.disconnected', layer=i)
-            return GraphResult([], [], float('inf'))
+            return GraphResult([], [], float('inf'), failure_layer=i,
+                               reachable_indices=tuple(int(a) for a in active))
         event('graph.layer', layer=i, reachable_nodes=int(np.isfinite(next_costs).sum()),
               minimum_cost=float(np.min(next_costs)), algorithm='dense')
         costs = next_costs

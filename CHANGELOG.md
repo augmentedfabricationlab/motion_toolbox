@@ -10,6 +10,21 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.9 - 2026-09-16
+
+- Retain connected base/arm states in bounded mobile fallback, try continued
+  footprints first, and expand locally at blocked transitions while reusing IK.
+  Preserve placement, joint, speed and sampled collision constraints.
+- Report the blocked zero-based target pair, first-rejection counts, measured
+  values/limits, joint indices and available collision details in Grasshopper
+  diagnostics and recording events, including graph-prefilter rejections.
+- Stop blocked fallback before evaluating later targets; distinguish untested
+  targets from infeasible targets. Uncapped supplied-domain search stays exact.
+- Refresh both Grasshopper script entrypoints and dependency reload markers.
+  No dependency changes. Validation: 188 tests passed; after predecessor-array
+  caching, 28 mobile regression tests passed. Synthetic dense/sparse comparison
+  preserved all 201 outputs and cost 1.0 (2,412 versus 223 IK calls).
+
 ## 0.1.8 - 2026-09-15
 
 - Speed up minimum-cost graph search by checking transitions in stable cost

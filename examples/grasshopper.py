@@ -64,14 +64,14 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.8':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.9':
         importlib.reload(motion_toolbox)
 
     names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
-        'motion_toolbox.base_planning', 'motion_toolbox.mobile_planning',
+        'motion_toolbox.mobile_transitions', 'motion_toolbox.base_planning', 'motion_toolbox.mobile_planning',
         'motion_toolbox.robot_planning',
     )
     modules = [importlib.import_module(name) for name in names]
@@ -83,7 +83,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 12
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 13
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -165,6 +165,11 @@ try:
         status = 'No complete path: {} targets have no feasible state. First indices: {}. See diagnostics for IK/limits/collision reasons.'.format(len(unreachable_points), unreachable_points[:12])
     else:
         status = 'No connected path satisfies joint-step / transition constraints.'
+        blocked = next((d for d in result.get('mobile_diagnostics', [])
+                        if d.get('reason') == 'transition_blocked'), None)
+        if blocked:
+            status = 'Blocked transition {} -> {} (zero-based): {}. See diagnostics for measured values and limits.'.format(
+                blocked['from_target'], blocked['to_target'], blocked['rejection_counts'])
     diagnostics.extend(str(item) for item in result.get('mobile_diagnostics', []))
     for warning in result['warnings']:
         diagnostics.append(warning)
