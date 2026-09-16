@@ -14,17 +14,21 @@ class GraphResult:
     reachable_indices: tuple = ()
 
 
-def lazy_shortest_path(layers, *, edge_valid, cheap_edge_valid=None, lazy_rounds=4, **options):
+def lazy_shortest_path(layers, *, edge_valid, cheap_edge_valid=None, lazy_rounds=4,
+                       exhaustive_fallback=True, **options):
     """Exact optimum with expensive checks deferred to proposed complete paths.
 
     Rejected edges are excluded, never accepted optimistically. After a bounded
     number of proposals the ordinary exact search checks remaining edges. This
     changes evaluation order only; costs, limits and predecessor ties agree.
+    Disabling exhaustive_fallback bounds proposal validation. Failure then
+    reports a tested blocked edge, not proof of graph disconnection.
     """
     options.setdefault('count_paths', False)
     if options['count_paths']:
         raise ValueError('Lazy validation cannot count untested alternative paths')
     checked = {}
+    rejected = None
     def validate(i, a, b):
         key = (i, a, b)
         if key not in checked:
@@ -41,8 +45,16 @@ def lazy_shortest_path(layers, *, edge_valid, cheap_edge_valid=None, lazy_rounds
             a = result.indices[i-1] if i else -1
             if not validate(i, a, result.indices[i]):
                 valid = False
+                if rejected is None:
+                    rejected = (i, a)
         if valid:
             return result
+    if not exhaustive_fallback and rejected is not None:
+        i, a = rejected
+        return GraphResult([], [], float('inf'), failure_layer=i,
+                           reachable_indices=(a,) if i else ())
+    if not exhaustive_fallback and lazy_rounds > 0:
+        return result
     return shortest_path(layers, edge_valid=lambda i,a,b: optimistic(i,a,b) and validate(i,a,b), **options)
 
 

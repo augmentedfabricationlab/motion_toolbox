@@ -10,6 +10,20 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.19 - 2026-09-16
+
+- Bound complete arm-trajectory proposal checks inside the adaptive strategy.
+  A failed tested transition triggers base-control refinement instead of an
+  exhaustive minimum-cost arm search for that rejected proposal. Accepted paths
+  still validate every original target and transition. Failure diagnostics
+  distinguish the bounded search from proof of graph disconnection.
+- Retain exhaustive fallback and exact results by default in shared planners.
+  No shared API timeout or collision/step-limit relaxation is introduced.
+- Validation: 240 tests passed. A fresh captured-case replay returned all 1,607
+  base/arm states in 403.171 seconds; an independent audit checked every target
+  and 1,606 transitions with zero rejections. Optional smoothing was rejected
+  for that particular result, so its validated original path was retained.
+
 ## 0.1.18 - 2026-09-16
 
 - Make the dedicated mobile Grasshopper component use an adaptive wall/lateral

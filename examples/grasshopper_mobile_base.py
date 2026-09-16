@@ -76,7 +76,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.18':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.19':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -95,7 +95,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 19
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 20
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)

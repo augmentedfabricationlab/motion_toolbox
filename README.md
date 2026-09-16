@@ -268,6 +268,9 @@ offsets start at `[0.6,0.8,1.0,1.2]` metres and mirror to the other side if need
 default heading offsets are `[-0.3,0,0.3]` radians from the smoothed wall normal.
 The sparse roadmap is a proposal generator, not a validation shortcut. Original
 motion constraints are applied to every original target and adjacent transition.
+Arm-path proposal validation is bounded before a failed tested transition is
+used to refine the base controls; it does not exhaustively optimize every rejected
+proposal. Such a failure is not proof that no connected arm path exists.
 Recognized URDF UR chains use calibrated FK refinement of analytic IK branches,
 including the actual TCP and independent arm mounting transform.
 

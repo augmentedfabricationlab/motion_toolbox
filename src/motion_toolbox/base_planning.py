@@ -439,7 +439,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         base_weight=1.0, yaw_weight=1.0, joint_weights=None, periodic=None,
         time_intervals=None, max_base_speed=None, max_yaw_speed=None, max_joint_speed=None,
         _candidate_cache=None, base_valid=None, max_feasible_bases=None,
-        _stop_on_unreachable=False, _connected_candidates=False, _base_limits=None):
+        _stop_on_unreachable=False, _connected_candidates=False, _base_limits=None,
+        _bounded_transition_search=False):
     """Jointly optimize arm configuration and holonomic base pose per TCP target.
 
     Exact over the supplied discretized states, with weighted Euclidean step
@@ -601,7 +602,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                 for a,b in zip(path_bases,path_bases[1:]))
             if base_bounds_ok:
                 cheap_edge = None
-        solved = lazy_shortest_path(numeric, edge_valid=edge, cheap_edge_valid=cheap_edge, **graph_options)
+        solved = lazy_shortest_path(numeric, edge_valid=edge, cheap_edge_valid=cheap_edge,
+            exhaustive_fallback=not _bounded_transition_search, **graph_options)
     chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
     blocked = []
     if solved.failure_layer is not None:
@@ -611,6 +613,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         for q, base in states[i]:
             list(transition.reachable(i, previous, q, base))
         blocked = [transition.diagnostic(i)]
+        if _bounded_transition_search:
+            blocked[0]['search_scope'] = 'bounded complete-path proposals; failed tested transition is not proof of graph disconnection'
         event('mobile.transition_blocked', **blocked[0])
     return BasePlan(chosen_bases, [q[4:] for q in solved.configurations], solved.cost, counts, blocked,
                     ik_solutions_per_node=joint_layers, target_diagnostics=diagnostics)

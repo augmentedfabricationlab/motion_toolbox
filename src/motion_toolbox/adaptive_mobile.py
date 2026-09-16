@@ -78,7 +78,8 @@ def plan_adaptive_mobile(targets, arm_in_base, *, height=0., window=50, knot_gap
         active = list(seed['failed_targets'])
         knots = sorted(set(seed['knots'])|set(active))
         exact_knots.update(active)
-    options = dict(options,_candidate_cache={},_stop_on_unreachable=False)
+    options = dict(options,_candidate_cache={},_stop_on_unreachable=False,
+                   _bounded_transition_search=True)
     from .stationary_region import StationaryRegion
     regions = {id(t):StationaryRegion([t],arm_in_base,max_distance=1.75,base_height=height,projected=True)
                for t in targets}
