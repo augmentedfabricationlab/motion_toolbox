@@ -65,7 +65,8 @@ def test_invalid_windows_are_not_silently_coerced(window):
         moving_average_xy(np.zeros((20,3)), window)
 
 
-def test_actual_component_only_outputs_xy_curves_without_robot(monkeypatch):
+@pytest.mark.parametrize('deviation', [None, .25])
+def test_actual_component_only_outputs_xy_curves_without_robot(monkeypatch, deviation):
     rhino, geometry = ModuleType('Rhino'), ModuleType('Rhino.Geometry')
     geometry.Point3d = lambda x,y,z: (x,y,z)
     geometry.PolylineCurve = lambda points: points
@@ -74,8 +75,10 @@ def test_actual_component_only_outputs_xy_curves_without_robot(monkeypatch):
     monkeypatch.setitem(sys.modules, 'Rhino.Geometry', geometry)
     path = Path(__file__).resolve().parents[1]/'examples/grasshopper_mobile_base.py'
     targets = [Plane((i,i%2,100+i), (1,0,0),(0,1,0)) for i in range(30)]
-    out = runpy.run_path(str(path),init_globals=dict(target_planes=targets,window_sizes=[5,10]))
-    assert out['status'].startswith('XY average only'), out['status']
+    out = runpy.run_path(str(path),init_globals=dict(target_planes=targets,window_sizes=[5,10],max_xy_deviation=deviation))
+    assert out['status'].startswith('XY average only' if deviation is None else 'Bounded XY smoothing'), out['status']
+    if deviation is not None:
+        assert out['result']['smoothing']['measured_max_deviation'] <= deviation+1e-12
     assert len(out['averaged_line']) == 30
     assert all(p[2] == 0. for p in out['averaged_line'])
     assert not out['base_planes'] and not out['configurations'] and out['joint_plan'] is None

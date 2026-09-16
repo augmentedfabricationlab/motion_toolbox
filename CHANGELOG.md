@@ -10,6 +10,20 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.21 - 2026-09-16
+
+- Add geometry-only whole-path XY smoothing with a per-target deviation bound,
+  squared-step/curvature objective, and explicit convergence diagnostics. Large
+  horizontal sweeps survive; height-only motion needs no XY movement.
+- Add reproducible comparison plots for captured recordings, including ordered
+  horizontal/height traces, reversal diagnostics and measured target deviations.
+- The existing Grasshopper line component accepts optional max_xy_deviation in
+  model units. Stationary planning is unchanged; no mobile robot planning added.
+- Validation: full suite 176 passed, then 11 averaging/component tests passed
+  after adding bounded-component coverage. Both real captures were processed
+  and plotted; deviation bounds hold. First-capture 0.25/0.50 m runs reach the
+  iteration cap and are explicitly reported as unconverged.
+
 ## 0.1.20 - 2026-09-16
 
 - Remove mobile-base search strategies, transition/runtime helpers, mobile-only

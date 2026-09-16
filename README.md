@@ -197,6 +197,29 @@ It neither resamples nor deduplicates repeated positions. At the ends, windows
 are clipped and their available weights renormalized. Even windows use symmetric
 half-weight endpoints to avoid half-sample phase shifts. Endpoints can move.
 
+For reversal-preserving smoothing, supply optional `max_xy_deviation` (positive,
+in Rhino model units) to the same component. Its `averaged_line` then uses a
+whole-path smooth fit constrained to remain within this distance of **each
+corresponding target**, with diagnostics in `result['smoothing']`. For example,
+use 0.25 in metres or 250 in millimetres. This is a geometric allowance, not a
+robot reach estimate. Existing averaging comparison outputs remain available.
+
+```powershell
+python validation/plot_xy_smoothing.py CASE --output OUTSIDE_GIT
+```
+
+This comparison uses 0.10, 0.25 and 0.50 m bounds, with 0.25 m selected for display.
+It minimizes squared XY steps plus 100 times squared second differences. Large
+horizontal excursions must survive the per-index bound; vertical oscillations
+have no effect. The algorithm operates directly in XY and assumes no circular
+wall. The plotted PCA coordinate and hysteresis reversals are diagnostics only;
+PCA is not intrinsic arc length and can be misleading for folded/closed walls.
+The fit uses input index, not physical time, and endpoints can move within the
+bound. Repeated points retain their weight. No speed, IK or collision checks are
+performed. Runs are iteration-bounded; `converged=false` explicitly indicates
+that the objective-gap tolerance was not reached, even though the deviation
+constraint is still enforced. No new runtime dependencies beyond NumPy.
+
 For an offline comparison graphic using an exported capture:
 
 ```powershell

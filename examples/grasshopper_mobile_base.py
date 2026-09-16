@@ -2,6 +2,7 @@
 Required: target_planes (List, Plane).
 Optional: window_sizes (List, int; defaults 10..200), toolbox_src (Item, str),
           selection_metric (Item, str; length_ratio or length, default length_ratio).
+          max_xy_deviation (Item, positive number in model units; enables bounded smoothing).
 Outputs: averaged_line, comparison_lines, window_sizes_used, line_lengths,
          best_window, selected_length, selection_scores, shortest_window,
          shortest_length, projected_points, result, status.
@@ -20,7 +21,7 @@ comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], []
 best_window, shortest_length = None, None
 selected_length, shortest_window, selection_scores = None, None, []
 status = ''
-version = '0.1.20'
+version = '0.1.21'
 try:
     source = globals().get('toolbox_src')
     if source is None:
@@ -36,7 +37,8 @@ try:
     positions = [as_plane(p).origin for p in targets]
     windows = globals().get('window_sizes')
     result = averaging.compare_windows(positions, windows if windows is not None and len(windows) else None,
-                                       metric=globals().get('selection_metric') or 'length_ratio')
+                                       metric=('length' if globals().get('max_xy_deviation') is not None else
+                                               globals().get('selection_metric') or 'length_ratio'))
     import Rhino.Geometry as rg
     def polyline(xy):
         return rg.PolylineCurve([rg.Point3d(float(x), float(y), 0.) for x, y in xy])
@@ -49,6 +51,16 @@ try:
     selection_scores = result['scores']
     status = 'XY average only: window {} points; {} score {:.6g}; length {:.6g} model units.'.format(
         best_window,result['metric'],result['best_score'],selected_length)
+    deviation = globals().get('max_xy_deviation')
+    if deviation is not None:
+        import motion_toolbox.xy_smoothing as smoothing
+        importlib.reload(smoothing)
+        smoothing_result = smoothing.smooth_xy(positions, float(deviation))
+        result['smoothing'] = smoothing_result
+        averaged_line = polyline(smoothing_result['curve'])
+        selected_length = smoothing_result['length']
+        status = 'Bounded XY smoothing: deviation {:.6g}; length {:.6g}; converged {}. Geometry only.'.format(
+            smoothing_result['measured_max_deviation'], selected_length, smoothing_result['converged'])
 except Exception as error:
     averaged_line, result = None, None
     comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], [], []
