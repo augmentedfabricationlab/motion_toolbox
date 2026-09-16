@@ -6,7 +6,7 @@ from time import perf_counter
 import numpy as np
 from .geometry import Plane, as_plane
 from .planning import candidates, calculate_partial_trajectory, rotation_offsets
-from .graph import shortest_path
+from .graph import shortest_path, lazy_shortest_path
 from .mobile_transitions import MobileTransitions
 
 
@@ -579,8 +579,17 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
     # Cheap vectorized bounds reject distant states before Python edge callbacks.
     # The callback still enforces the Euclidean translation and timed limits.
     limits = [np.inf if max_base_step is None else max_base_step]*3 + [np.inf if max_yaw_step is None else max_yaw_step] + np.broadcast_to(np.inf if max_joint_step is None else max_joint_step, (n,)).tolist()
-    solved = shortest_path(numeric, start=start, weights=weights, periodic=[False]*3+[True]+arm_periodic,
-                           max_step=limits, edge_valid=edge, count_paths=False)
+    graph_options = dict(start=start, weights=weights, periodic=[False]*3+[True]+arm_periodic,
+                         max_step=limits, count_paths=False)
+    if transition_check is None:
+        solved = shortest_path(numeric, edge_valid=edge, **graph_options)
+    else:
+        cheap_transition = MobileTransitions(dict(transition.options, transition_check=None))
+        def cheap_edge(i, a, b):
+            previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a]]
+            q, base = states[i][b]
+            return next(cheap_transition.reachable(i, previous, q, base), None) is not None
+        solved = lazy_shortest_path(numeric, edge_valid=edge, cheap_edge_valid=cheap_edge, **graph_options)
     chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
     blocked = []
     if solved.failure_layer is not None:

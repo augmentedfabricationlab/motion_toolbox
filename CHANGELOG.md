@@ -10,6 +10,21 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.15 - 2026-09-16
+
+- Defer expensive mobile swept-edge checks to complete candidate trajectories,
+  with exact rejection and bounded fallback to ordinary graph search. Preserve
+  joint bounds, costs and predecessor tie-breaking; do not relax collisions.
+- Add a manifest-verified offline capture replay in a killable subprocess,
+  explicit proposal validation, FK audits and source fingerprints. Runtime
+  bounds remain in the replay harness, not shared planning APIs.
+- Extend explicitly increased smooth repair budgets to smaller displacements
+  and shorter smooth windows, and stop repeating exhausted repairs.
+- Validation: 227 tests passed. Captured 1,607-target case reproduced analytic
+  IK rejection at target 1062. Captured calibrated URDF FK differs from nominal
+  analytic IK by millimetres in sampled checks; this case is NOT yet solved or
+  fabrication-ready. Geometry and experimental results remain outside Git.
+
 ## 0.1.14 - 2026-09-16
 
 - Revert 0.1.13's shared planning deadline and all injected planner/collision

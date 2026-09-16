@@ -14,6 +14,35 @@ class GraphResult:
     reachable_indices: tuple = ()
 
 
+def lazy_shortest_path(layers, *, edge_valid, cheap_edge_valid=None, lazy_rounds=4, **options):
+    """Exact optimum with expensive checks deferred to proposed complete paths.
+
+    Rejected edges are excluded, never accepted optimistically. After a bounded
+    number of proposals the ordinary exact search checks remaining edges. This
+    changes evaluation order only; costs, limits and predecessor ties agree.
+    """
+    checked = {}
+    def validate(i, a, b):
+        key = (i, a, b)
+        if key not in checked:
+            checked[key] = bool(edge_valid(i, a, b))
+        return checked[key]
+    def optimistic(i, a, b):
+        return checked.get((i, a, b), True) and (cheap_edge_valid is None or cheap_edge_valid(i, a, b))
+    for _ in range(lazy_rounds):
+        result = shortest_path(layers, edge_valid=optimistic, **options)
+        if not result.configurations:
+            break  # Eager reachability supplies the exact blocking layer too.
+        valid = True
+        for i in range(0 if options.get('start') is not None else 1, len(result.indices)):
+            a = result.indices[i-1] if i else -1
+            if not validate(i, a, result.indices[i]):
+                valid = False
+        if valid:
+            return result
+    return shortest_path(layers, edge_valid=lambda i,a,b: optimistic(i,a,b) and validate(i,a,b), **options)
+
+
 def _winding_layer(previous, current, costs, counts, weights, limits, count_paths):
     """Exact bounded-angle transitions using one predecessor per physical pose.
 

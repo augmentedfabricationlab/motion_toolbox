@@ -155,17 +155,21 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
     # A smooth compact-support displacement changes a neighbourhood, never
     # just one footprint. Every changed and unchanged TCP is then validated.
     # Continue from an improved path, retaining prior successful adjustments.
-    moves = [(x,y) for size in (.15,.3) for x,y in
-             ((size,0),(-size,0),(0,size),(0,-size))]
+    moves = [(x,y,None) for size in (.15,.3)
+             for x,y in ((size,0),(-size,0),(0,size),(0,-size))]
+    moves += [(x,y,span) for span in (100,50,25,10) for size in (.025,.05,.1,.15,.3)
+              for x,y in ((size,0),(-size,0),(0,size),(0,-size))]
     move_index = 0
     for _ in range(int(repair_attempts)):
         if best is None or best[1].configurations:
             break
         index, _, arrays, metadata, _ = best
         index = min(index,len(targets)-1)
-        dx,dy = moves[move_index % len(moves)]
+        if move_index >= len(moves):
+            break  # No improvement: do not repeat identical failed repairs.
+        dx,dy,span = moves[move_index]
         move_index += 1
-        span = max(50,int(metadata['window']))
+        span = max(50,int(metadata['window'])) if span is None else span
         u = np.abs(np.arange(len(targets))-index)/span
         blend = np.where(u < 1, .5*(1+np.cos(np.pi*np.minimum(u,1))), 0.)
         positions, direction, tangent = arrays
