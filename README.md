@@ -265,8 +265,21 @@ for example `[-1.2,-1.0,-0.8,0.8,1.0,1.2]`.
 Cheap placement checks eliminate unsuitable proposals before IK. The remaining
 paths are tried across smoothing windows and both sideways signs, starting each
 family near 1 m wall clearance before exploring other distances. This prevents
-small score differences from consuming the budget on only one window. If global
-proposals fail, up to `smooth_repair_attempts` (default 8, zero disables) adjust
+small score differences from consuming the budget on only one window.
+
+If whole-path proposals fail, `connect_sections:true` (default) tries valid
+partial paths and joins them. Defaults are `section_size:100`,
+`section_proposals:6` and `section_beam_width:2`. Sections overlap by half their
+target count. Position and shortest-arc yaw blend across the overlap using a
+cubic smoothstep. Each joined prefix is solved again as a single arm/base path;
+independent arm configurations are never simply concatenated. The bounded search
+keeps up to two alternatives ranked by smoothness, reuses IK and identical
+transition checks within the same scene, and returns output planes only after
+the entire path passes validation. Logs include section ranges, joins, rejected
+constraints and validated prefix length. Set `connect_sections:false` to disable.
+`benchmarks/mobile_sections_benchmark.py` measures a synthetic stitching case.
+
+If section joining also fails, up to `smooth_repair_attempts` (default 8, zero disables) adjust
 the most promising path around its blocking target. Cosine-tapered X/Y shifts of
 0.15 or 0.30 m extend over at least 50 targets on each side; accepted improvements
 are retained. These are bounded geometric proposals, not relaxed constraints.

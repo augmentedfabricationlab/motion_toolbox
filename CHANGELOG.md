@@ -10,6 +10,23 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.12 - 2026-09-16
+
+- Add overlapping partial-path construction and connection after whole smooth
+  proposals fail. Default sections contain 100 targets with 50-target overlaps;
+  test six proposals and retain two smooth alternatives. Blend position and
+  shortest-arc yaw gradually, then solve each joined prefix as one arm/base path.
+- Preserve placement, IK, joint-step, timing and enabled collision constraints
+  across joins. Reuse IK and exact endpoint transition checks within a fixed
+  search scene. Never output an unvalidated concatenation or incomplete path.
+- Expose connect_sections, section_size, section_proposals and section_beam_width;
+  report section ranges, join rejection details and validated prefix coverage.
+  No dependency changes; both Grasshopper script reload markers updated.
+- Validation: full suite 210 passed; 22 focused tests passed after transition
+  caching. A synthetic 1,607-target, 32-section workload completed in 24.38 s;
+  identical endpoint caching reduced transition callbacks from 59,973 to 3,784.
+  This uses synthetic callbacks; the full user robot scene was not rerun.
+
 ## 0.1.11 - 2026-09-16
 
 - Spread smooth-path attempts across windows and both sideways signs; try wall

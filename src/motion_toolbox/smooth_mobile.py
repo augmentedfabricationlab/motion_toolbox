@@ -85,7 +85,8 @@ def smooth_offset_proposals(targets, arm_in_base, *, height=0., lateral_distance
 
 
 def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., windows=(10,25,50,100,200),
-                       wall_distances=(.4,.6,.8,1.,1.2), lateral_offsets=None, max_attempts=12, repair_attempts=8, **options):
+                       wall_distances=(.4,.6,.8,1.,1.2), lateral_offsets=None, max_attempts=12, repair_attempts=8, connect_sections=True,
+                       section_size=100, section_proposals=6, section_beam_width=2, **options):
     """Try a bounded set of globally smooth paths with every original TCP checked."""
     if int(max_attempts) != max_attempts or max_attempts < 1:
         raise ValueError('smooth_max_attempts must be a positive integer')
@@ -137,6 +138,20 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
             best = attempt
         if attempt[1].configurations:
             break
+    section_diagnostics = []
+    if connect_sections and best is not None and not best[1].configurations:
+        from .mobile_sections import plan_mobile_sections
+        joined = plan_mobile_sections(targets, ordered, arm_in_base, height=height,
+            section_size=section_size, proposal_limit=section_proposals,
+            beam_width=section_beam_width, **options)
+        section_diagnostics = list(joined.diagnostics)
+        for diagnostic in section_diagnostics:
+            checked_any.update(diagnostic.get('checked_target_indices',[]))
+        if joined.configurations:
+            checked_any.update(range(len(targets)))
+            history.append(dict(complete=True, strategy='connected_sections',
+                                section_diagnostics=section_diagnostics))
+            best = (len(targets),joined,best[2],best[3],len(history)-1)
     # A smooth compact-support displacement changes a neighbourhood, never
     # just one footprint. Every changed and unchanged TCP is then validated.
     # Continue from an improved path, retaining prior successful adjustments.
@@ -179,7 +194,7 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
     if best is not None:
         result = best[1]
     result.diagnostics.append(dict(mode='smooth_offset', attempts=history,
-        geometry_rejected_count=len(rejected), geometry_rejection_examples=rejected[:5],
+        section_diagnostics=section_diagnostics, geometry_rejected_count=len(rejected), geometry_rejection_examples=rejected[:5],
         proposal_count=len(proposals), attempt_limit=int(max_attempts),
         selected=history[best[4]] if best is not None and result.configurations else None,
         best_attempt=best[4] if best is not None else None,

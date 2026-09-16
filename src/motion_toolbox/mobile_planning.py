@@ -39,7 +39,7 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     """
     from .planning import rotation_offsets
     settings = dict(settings)
-    allowed = {'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
+    allowed = {'connect_sections', 'section_size', 'section_proposals', 'section_beam_width', 'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
                'lateral_offsets', 'smooth_max_attempts', 'smooth_repair_attempts',
                'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
                'sampling', 'xy_tolerance', 'normal_angle', 'z_tolerance',
@@ -53,6 +53,8 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     if strategy not in ('discrete', 'smooth_offset'):
         raise ValueError('strategy must be discrete or smooth_offset')
     smooth = {name: settings.pop(key) for key,name in (
+        ('connect_sections','connect_sections'), ('section_size','section_size'),
+        ('section_proposals','section_proposals'), ('section_beam_width','section_beam_width'),
         ('lateral_distance','lateral_distance'), ('wall_distances','wall_distances'),
         ('smoothing_windows','windows'), ('lateral_offsets','lateral_offsets'),
         ('smooth_max_attempts','max_attempts'), ('smooth_repair_attempts','repair_attempts')) if key in settings}
