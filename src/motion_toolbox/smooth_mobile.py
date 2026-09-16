@@ -85,10 +85,12 @@ def smooth_offset_proposals(targets, arm_in_base, *, height=0., lateral_distance
 
 
 def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., windows=(10,25,50,100,200),
-                       wall_distances=(.4,.6,.8,1.,1.2), lateral_offsets=None, max_attempts=12, **options):
+                       wall_distances=(.4,.6,.8,1.,1.2), lateral_offsets=None, max_attempts=12, repair_attempts=8, **options):
     """Try a bounded set of globally smooth paths with every original TCP checked."""
     if int(max_attempts) != max_attempts or max_attempts < 1:
         raise ValueError('smooth_max_attempts must be a positive integer')
+    if int(repair_attempts) != repair_attempts or repair_attempts < 0:
+        raise ValueError("smooth_repair_attempts must be a nonnegative integer")
     started = perf_counter()
     proposals, rejected = smooth_offset_proposals(targets, arm_in_base, height=height,
         lateral_distance=lateral_distance, windows=windows, wall_distances=wall_distances,
@@ -98,20 +100,91 @@ def plan_smooth_mobile(targets, arm_in_base, *, height=0., lateral_distance=1., 
         target_diagnostics=[dict(checked=False) for _ in targets],
         ik_solutions_per_node=[[] for _ in targets])
     options = dict(options, _candidate_cache={}, _stop_on_unreachable=True)
-    for _, arrays, metadata in proposals[:int(max_attempts)]:
+    # Round-robin across smoothing windows and sides before spending the
+    # remaining budget on more distances from the same family.
+    groups = {}
+    for proposal in proposals:
+        meta = proposal[2]
+        groups.setdefault((meta['window'], np.sign(meta['lateral_metres'])), []).append(proposal)
+    # Start each family near one metre of wall clearance, then explore other
+    # clearances. Tiny score differences must not exclude useful distances.
+    for group in groups.values():
+        group.sort(key=lambda p: (abs(p[2]['wall_distance_metres']-1.), p[0]))
+    ordered = []
+    while any(groups.values()):
+        for group in groups.values():
+            if group:
+                ordered.append(group.pop(0))
+    best = None
+    checked_any = set()
+
+    def evaluate(arrays, metadata):
         bases = [Plane((p[0], p[1], height), (*d, 0), (*t, 0)) for p,d,t in zip(*arrays)]
-        result = plan_mobile_base(targets, [[b] for b in bases], **options)
-        failed = next((i for i,n in enumerate(result.candidate_counts) if n == 0), None)
-        history.append(dict(metadata, complete=bool(result.configurations),
+        solved = plan_mobile_base(targets, [[b] for b in bases], **options)
+        checked_any.update(i for i,n in enumerate(solved.candidate_counts) if n is not None)
+        failed = next((i for i,n in enumerate(solved.candidate_counts) if n == 0), None)
+        blocked = next((d['to_target'] for d in solved.diagnostics if d.get('reason') == 'transition_blocked'), None)
+        progress = failed if failed is not None else blocked if blocked is not None else len(targets)
+        history.append(dict(metadata, complete=bool(solved.configurations),
             first_infeasible_target=failed,
-            failed_target_details=result.target_diagnostics[failed] if failed is not None else None,
-            transition_diagnostics=list(result.diagnostics)))
-        if result.configurations:
+            failed_target_details=solved.target_diagnostics[failed] if failed is not None else None,
+            transition_diagnostics=list(solved.diagnostics)))
+        return progress, solved, arrays, dict(metadata), len(history)-1
+
+    for _, arrays, metadata in ordered[:int(max_attempts)]:
+        attempt = evaluate(arrays, metadata)
+        if best is None or attempt[0] > best[0] or attempt[1].configurations:
+            best = attempt
+        if attempt[1].configurations:
             break
+    # A smooth compact-support displacement changes a neighbourhood, never
+    # just one footprint. Every changed and unchanged TCP is then validated.
+    # Continue from an improved path, retaining prior successful adjustments.
+    moves = [(x,y) for size in (.15,.3) for x,y in
+             ((size,0),(-size,0),(0,size),(0,-size))]
+    move_index = 0
+    for _ in range(int(repair_attempts)):
+        if best is None or best[1].configurations:
+            break
+        index, _, arrays, metadata, _ = best
+        index = min(index,len(targets)-1)
+        dx,dy = moves[move_index % len(moves)]
+        move_index += 1
+        span = max(50,int(metadata['window']))
+        u = np.abs(np.arange(len(targets))-index)/span
+        blend = np.where(u < 1, .5*(1+np.cos(np.pi*np.minimum(u,1))), 0.)
+        positions, direction, tangent = arrays
+        changed = positions+blend[:,None]*(dx*direction+dy*tangent)
+        mount = as_plane(arm_in_base).origin
+        arm = changed+mount[0]*direction+mount[1]*tangent
+        relative = np.array([as_plane(t).origin[:2] for t in targets])-arm
+        normals = np.array([as_plane(t).zaxis[:2] for t in targets])
+        bad = np.flatnonzero((np.linalg.norm(relative,axis=1)>1.75+1e-10) |
+                             (np.einsum('ij,ij->i',relative,normals)<=0))
+        repair = dict(target=index, span=span, robot_x_shift=dx, robot_y_shift=dy)
+        if len(bad):
+            history.append(dict(local_repair=repair, complete=False,
+                reason='placement_geometry', first_infeasible_target=int(bad[0])))
+            continue
+        repaired_meta = dict(metadata, local_repairs=metadata.get('local_repairs',[])+[repair])
+        repaired_meta['max_arm_xy_reach'] = float(np.linalg.norm(relative,axis=1).max())
+        repaired_meta['xy_second_difference'] = (float(np.mean(np.linalg.norm(np.diff(changed,n=2,axis=0),axis=1)))
+                                                 if len(targets)>2 else 0.)
+        repaired_meta['proposal_smoothness_score'] = repaired_meta.pop('smoothness_score',
+            repaired_meta.get('proposal_smoothness_score'))
+        attempt = evaluate((changed,direction,tangent),repaired_meta)
+        if attempt[0] > best[0] or attempt[1].configurations:
+            best = attempt
+            move_index = 0
+    if best is not None:
+        result = best[1]
     result.diagnostics.append(dict(mode='smooth_offset', attempts=history,
         geometry_rejected_count=len(rejected), geometry_rejection_examples=rejected[:5],
         proposal_count=len(proposals), attempt_limit=int(max_attempts),
-        selected=history[-1] if result.configurations else None,
+        selected=history[best[4]] if best is not None and result.configurations else None,
+        best_attempt=best[4] if best is not None else None,
+        checked_in_any_attempt=len(checked_any), repair_attempt_limit=int(repair_attempts),
+        summary_scope='target counts describe the best attempt, not the last attempt',
         reason='complete' if result.configurations else 'smooth_proposals_exhausted',
         scope='bounded smooth proposals; failure does not prove global infeasibility',
         total_seconds=perf_counter()-started))

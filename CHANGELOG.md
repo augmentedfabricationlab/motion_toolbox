@@ -10,6 +10,20 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.11 - 2026-09-16
+
+- Spread smooth-path attempts across windows and both sideways signs; try wall
+  clearance near one metre before other distances within each family.
+- Add up to eight cosine-tapered local X/Y repair proposals around the best
+  attempt's blocking target, reusing IK results and retaining reach, joint and
+  collision checks. Repairs can be disabled with smooth_repair_attempts=0.
+- Report the best failed attempt and aggregate checked-target coverage rather
+  than the last attempt. Label placement/body rejection before IK correctly.
+- Add regressions for local repair, window/sign coverage, and best-attempt
+  diagnostics: 202 tests passed. Synthetic 1,607-target benchmark: 1.05 seconds,
+  preserving 1,607 IK/collision and 1,606 transition calls. No dependency changes.
+  Full user robot scene not rerun; synthetic timing is not a robot estimate.
+
 ## 0.1.10 - 2026-09-16
 
 - Make smooth whole-path proposals the dedicated mobile Grasshopper component

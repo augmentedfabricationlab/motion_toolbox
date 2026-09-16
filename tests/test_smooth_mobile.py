@@ -77,7 +77,7 @@ def test_offset_repair_and_full_resolution_checks():
 
 def test_failure_budget_no_dense_fallback_or_relaxed_constraints():
     result = plan_smooth_mobile([wall(i*.01) for i in range(20)],Plane.world_xy(),
-        ik_solver=lambda t,b:[[0]], transition_check=lambda *a:False, max_attempts=2)
+        ik_solver=lambda t,b:[[0]], transition_check=lambda *a:False, max_attempts=2, repair_attempts=0)
     assert not result.configurations
     assert result.diagnostics[-1]['reason'] == 'smooth_proposals_exhausted'
     assert len(result.diagnostics[-1]['attempts']) == 2
@@ -89,6 +89,41 @@ def test_smoothing_does_not_ignore_large_height_for_ik():
         ik_solver=lambda t,b:[[0]] if t.origin[2] < 2 else [], max_attempts=1)
     assert not result.configurations
     assert result.candidate_counts[1] == 0
+
+
+def test_local_smooth_repair_rescues_target_without_pointwise_jump():
+    targets = [wall(i*.01) for i in range(101)]
+    def ik(t,b):
+        if abs(t.origin[0]-.5) < 1e-8 and b.origin[1] < -.9:
+            return []
+        return [[0]]
+    result = plan_smooth_mobile(targets,Plane.world_xy(),windows=[10],
+        wall_distances=[1],lateral_offsets=[0],ik_solver=ik,max_attempts=1,repair_attempts=1)
+    assert len(result.base_planes) == len(targets)
+    positions = np.array([b.origin for b in result.base_planes])
+    assert np.linalg.norm(np.diff(positions,axis=0),axis=1).max() < .02
+    assert result.diagnostics[-1]['selected']['local_repairs'][0]['target'] == 50
+
+
+def test_failure_summary_retains_best_attempt_not_last():
+    targets = [wall(i*.01) for i in range(20)]
+    def ik(t,b):
+        return [[0]] if b.origin[1] < -.9 and t.origin[0] < .1 else []
+    result = plan_smooth_mobile(targets,Plane.world_xy(),windows=[1],
+        wall_distances=[1,.8],lateral_offsets=[0],ik_solver=ik,max_attempts=2,repair_attempts=0)
+    assert result.candidate_counts[9] == 1
+    assert result.candidate_counts[10] == 0
+    assert result.diagnostics[-1]['best_attempt'] == 0
+    assert result.diagnostics[-1]['checked_in_any_attempt'] == 11
+
+
+def test_attempts_cover_windows_and_both_sides():
+    result = plan_smooth_mobile([wall(i*.01) for i in range(201)],Plane.world_xy(),
+        ik_solver=lambda t,b:[],max_attempts=10,repair_attempts=0)
+    attempts = result.diagnostics[-1]['attempts']
+    assert {a['window'] for a in attempts} == {10,25,50,100,200}
+    assert {(a['window'],a['lateral_metres']) for a in attempts} == {
+        (w,s) for w in (10,25,50,100,200) for s in (-1.,1.)}
 
 
 @pytest.mark.parametrize('options', [{'windows':[0]}, {'lateral_distance':-1}, {'wall_distances':[-1]}, {'lateral_offsets':[]}])

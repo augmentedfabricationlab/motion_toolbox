@@ -263,10 +263,19 @@ Both sideways signs are tested; `lateral_offsets` can explicitly override them,
 for example `[-1.2,-1.0,-0.8,0.8,1.0,1.2]`.
 
 Cheap placement checks eliminate unsuitable proposals before IK. The remaining
-paths are tried in score order, stopping at the first fully valid path or the
-attempt limit. All original 3D TCPs, joint limits and enabled collision/transition
+paths are tried across smoothing windows and both sideways signs, starting each
+family near 1 m wall clearance before exploring other distances. This prevents
+small score differences from consuming the budget on only one window. If global
+proposals fail, up to `smooth_repair_attempts` (default 8, zero disables) adjust
+the most promising path around its blocking target. Cosine-tapered X/Y shifts of
+0.15 or 0.30 m extend over at least 50 targets on each side; accepted improvements
+are retained. These are bounded geometric proposals, not relaxed constraints.
+All original 3D TCPs, joint limits and enabled collision/transition
 checks remain enforced, with one base plane per target on success. Diagnostics
 report tried windows, wall distances, sideways offsets and validation failures.
+Failure summaries refer to the best attempt rather than the last one;
+`checked_in_any_attempt` reports aggregate target coverage. Counts and IK states
+from different proposed paths are never combined into a fabricated solution.
 Failure means the bounded proposal search was exhausted, not that fabrication
 is impossible. There is no automatic dense grid fallback in this mode. Seed
 planes, grid spacing, yaw samples and XY keyframe tolerance apply to the discrete
