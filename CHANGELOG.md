@@ -10,6 +10,25 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.10 - 2026-09-16
+
+- Make smooth whole-path proposals the dedicated mobile Grasshopper component
+  default. Footprint +X faces the wall; the nominal one-metre offset is along
+  footprint +/-Y. Search wall distance along X independently, checking calibrated
+  arm-origin XY reach and negative-TCP-Z placement.
+- Compare moving-average windows of 10, 25, 50, 100 and 200 targets, ranking
+  position/heading smoothness and tracking rather than minimizing base travel.
+  Curved walls use local normal offsets. Validate every original 3D target and
+  all enabled transition/collision constraints before returning a path.
+- Bound proposal attempts, stop failed IK validation early, reuse candidate
+  results, and defer plane construction until validation. No automatic dense
+  fallback; retain the previous planner through strategy=discrete. Record
+  attempted smoothing/offset settings and validation failures. Correct the
+  misleading unchecked-target keyframe message. No dependency changes.
+- Validation: 199 tests passed. Synthetic 1,607-target benchmark completed in
+  1.59 seconds with 1,607 IK/collision calls and 1,606 transition calls; callbacks
+  were synthetic, not a real-robot runtime estimate. Full user scene not rerun.
+
 ## 0.1.9 - 2026-09-16
 
 - Retain connected base/arm states in bounded mobile fallback, try continued

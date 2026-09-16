@@ -39,7 +39,9 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     """
     from .planning import rotation_offsets
     settings = dict(settings)
-    allowed = {'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
+    allowed = {'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
+               'lateral_offsets', 'smooth_max_attempts',
+               'sparse', 'xy_offsets', 'yaw_offsets', 'max_gap', 'max_distance', 'angle',
                'sampling', 'xy_tolerance', 'normal_angle', 'z_tolerance',
                'start_base', 'max_base_step', 'max_yaw_step', 'base_weight', 'yaw_weight',
                'joint_weights', 'time_intervals', 'max_base_speed', 'max_yaw_speed', 'max_joint_speed',
@@ -47,6 +49,15 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     unknown = set(settings)-allowed
     if unknown:
         raise ValueError('Unknown mobile options: ' + ', '.join(sorted(unknown)))
+    strategy = settings.pop('strategy', 'discrete')
+    if strategy not in ('discrete', 'smooth_offset'):
+        raise ValueError('strategy must be discrete or smooth_offset')
+    smooth = {name: settings.pop(key) for key,name in (
+        ('lateral_distance','lateral_distance'), ('wall_distances','wall_distances'),
+        ('smoothing_windows','windows'), ('lateral_offsets','lateral_offsets'),
+        ('smooth_max_attempts','max_attempts')) if key in settings}
+    if smooth and strategy != 'smooth_offset':
+        raise ValueError('Smooth path settings require strategy=smooth_offset')
     sparse = settings.pop('sparse', False)
     use_region = settings.pop('placement_region', False)
     spacing = settings.pop('grid_spacing', .5)
@@ -94,8 +105,15 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
         return [Plane(seed.origin + np.r_[offset, 0.], seed.xaxis, seed.yaxis).rotated_z(a)
                 for offset in xy for a in yaw]
     started = perf_counter()
-    solved = (plan_mobile_sparse(targets, layer, **selection, **options) if sparse else
-              plan_mobile_base(targets, [layer(i,t) for i,t in enumerate(targets)], **options))
+    if strategy == 'smooth_offset':
+        from .smooth_mobile import plan_smooth_mobile
+        if not use_region:
+            raise ValueError('smooth_offset requires placement_region=true')
+        solved = plan_smooth_mobile(targets, options['ik_solver'].arm_in_base,
+                                   height=height, **smooth, **options)
+    else:
+        solved = (plan_mobile_sparse(targets, layer, **selection, **options) if sparse else
+                  plan_mobile_base(targets, [layer(i,t) for i,t in enumerate(targets)], **options))
     return dict(configurations=solved.configurations, base_planes=solved.base_planes,
         path_length=solved.cost, num_nodes_computed=len(targets),
         unreachable_points=[i for i,n in enumerate(solved.candidate_counts) if n == 0],

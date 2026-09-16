@@ -236,7 +236,50 @@ offset candidates. Keep `current_pose` empty to omit the approach; if supplied,
 also provide `mobile_options.start_base` as a metre-based numeric plane dictionary
 (`origin`, `x_axis`, `y_axis`).
 
-Sparse mode now simplifies **world XY positions** with `xy_tolerance=0.05`
+### Smooth fabrication base path (dedicated mobile component default)
+
+`grasshopper_mobile_base.py` now defaults to `strategy:"smooth_offset"`.
+The planner creates whole smooth paths first, then validates the robot on each
+path. It does not minimize base travel or choose independent per-target bases.
+Footprint **+X faces the wall**; the roughly one-metre offset is along footprint
+**+Y or -Y**, beside the robot. The wall distance along X is searched separately.
+Offsets are measured from the footprint; reach is checked from the calibrated
+arm origin, with maximum XY reach 1.75 m and the required negative-TCP-Z side.
+
+Default `mobile_options` (metres regardless of Rhino document units):
+
+```json
+{"strategy":"smooth_offset", "lateral_distance":1.0,
+ "wall_distances":[0.4,0.6,0.8,1.0,1.2],
+ "smoothing_windows":[10,25,50,100,200], "smooth_max_attempts":12}
+```
+
+Centred moving averages smooth XY positions and projected wall normals. Whole
+paths are ranked by position/heading second differences and departure from the
+TCP trend, rather than total distance travelled. Window sizes count input points;
+uneven input spacing therefore changes their physical smoothing extent. Curves
+use local normal offsets, without assuming a circular shape or scaling centre.
+Both sideways signs are tested; `lateral_offsets` can explicitly override them,
+for example `[-1.2,-1.0,-0.8,0.8,1.0,1.2]`.
+
+Cheap placement checks eliminate unsuitable proposals before IK. The remaining
+paths are tried in score order, stopping at the first fully valid path or the
+attempt limit. All original 3D TCPs, joint limits and enabled collision/transition
+checks remain enforced, with one base plane per target on success. Diagnostics
+report tried windows, wall distances, sideways offsets and validation failures.
+Failure means the bounded proposal search was exhausted, not that fabrication
+is impossible. There is no automatic dense grid fallback in this mode. Seed
+planes, grid spacing, yaw samples and XY keyframe tolerance apply to the discrete
+strategy only. Compare synthetic timing with `benchmarks/smooth_mobile_benchmark.py`.
+
+### Previous discrete/sparse strategy
+
+Use `{"strategy":"discrete","sparse":true}` in the dedicated component for
+the previous regional search, or `{"strategy":"discrete","sparse":false}`
+for uncapped full-domain search. The general numeric adapter retains its existing
+discrete default unless `strategy:"smooth_offset"` is explicitly supplied.
+
+Sparse mode simplifies **world XY positions** with `xy_tolerance=0.05`
 metres by default. Small sinusoidal ripples within that geometric tolerance can
 be removed while larger square-wave turns, reversals and excursions remain.
 It uses point-to-segment error on the ordered path, not local turn angles or

@@ -1,6 +1,6 @@
 """Rhino 8 Python 3: plan base motion for printing while driving.
 
-Paste this entire file into a Grasshopper Python 3 component. Recomputes
+Load this file by path in a Grasshopper Python 3 component. Recomputes
 when inputs change. Requires motion-toolbox with COMPAS FAB and PyBullet.
 Mark optional inputs Optional. No external path generator is required.
 
@@ -9,19 +9,19 @@ Required inputs:
   target_planes      List, Plane: ordered world TCP planes
 
 Optional inputs:
-  seed_base_planes   List, Plane: optional footprint proposals, one or one per target
+  seed_base_planes   List, Plane: optional proposals for strategy=discrete
   base_height        Item, float: footprint Z in model units (default 0)
   grid_spacing       Item, float: search spacing in model units (default 0.5 metre)
   yaw_steps          Item, int: heading samples at each arm origin (default 4)
   model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres
   xy_tolerance       Item, float: ignored XY ripple size, model units (default 5 cm)
   mobile_options     Item, JSON: search/sampling/limits overrides (README)
-                     Sparse default: at most 4 feasible bases per target;
-                     World XY simplification: xy_tolerance=0.05 metres;
-                     ignores Z and small ripples; no fixed point-count gap.
-                     normal_angle=0.35 radians retains wall-normal changes.
-                     sparse=false searches the complete sampled region.
-                     xy_offsets/yaw_offsets are superseded by the region search.
+                     Default strategy=smooth_offset: footprint +X faces wall,
+                     lateral_distance=1.0 metres along footprint +/-Y;
+                     wall_distances=[0.4,0.6,0.8,1.0,1.2] metres along +X;
+                     smoothing_windows=[10,25,50,100,200], smooth_max_attempts=12.
+                     All original 3D targets and transitions are validated.
+                     strategy=discrete enables previous grid/sparse settings.
   current_pose       List, float: optional six starting arm angles, radians
   start_base         Item, Plane: required with current_pose; model units
   arm_in_base        Item, Plane: optional calibrated mounting override
@@ -70,14 +70,14 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.9':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.10':
         importlib.reload(motion_toolbox)
 
     names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
-        'motion_toolbox.mobile_transitions', 'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.mobile_planning',
+        'motion_toolbox.mobile_transitions', 'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.smooth_mobile', 'motion_toolbox.mobile_planning',
         'motion_toolbox.robot_planning',
     )
     modules = [importlib.import_module(name) for name in names]
@@ -89,7 +89,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 13
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 14
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -109,7 +109,7 @@ def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_jo
     from motion_toolbox.robot_planning import plan_robot
     from motion_toolbox.geometry import as_plane
     from motion_toolbox.robot_planning import json_input
-    settings = dict(sparse=True)
+    settings = dict(sparse=True, strategy='smooth_offset')
     settings.update(json_input(options.pop('mobile_options', None), {}))
     tolerance = options.pop('xy_tolerance', .05/model_units_to_metres)*model_units_to_metres
     if settings['sparse']:
@@ -174,7 +174,7 @@ try:
     path_cost = result['path_length']
     unreachable_points = result['unreachable_points']
     if result.get('unchecked_points'):
-        diagnostics.append('{} targets were not checked after a keyframe exhausted its candidate region; their feasibility is unknown.'.format(len(result['unchecked_points'])))
+        diagnostics.append('{} targets were not checked after planning stopped; their feasibility is unknown.'.format(len(result['unchecked_points'])))
     timings = result['timings']
     version = result['version']
     for i in unreachable_points:
@@ -195,6 +195,8 @@ try:
         if blocked:
             status = 'Blocked transition {} -> {} (zero-based): {}. See diagnostics for measured values and limits.'.format(
                 blocked['from_target'], blocked['to_target'], blocked['rejection_counts'])
+    if not configurations and any(d.get('reason') == 'smooth_proposals_exhausted' for d in result.get('mobile_diagnostics', [])):
+        status = 'No validated smooth offset path in the tested proposal budget. See diagnostics for failed targets and transitions.'
     diagnostics.extend(str(item) for item in result.get('mobile_diagnostics', []))
     for warning in result['warnings']:
         diagnostics.append(warning)

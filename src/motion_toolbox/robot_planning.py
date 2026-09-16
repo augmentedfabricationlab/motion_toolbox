@@ -9,7 +9,7 @@ from .geometry import Plane, as_plane
 from .robot_adapter import kinematics_from_robot, configuration_from_values, resolve_arm_joint_names, _active_tool
 from .planning import calculate_partial_trajectory
 
-ROBOT_COMPONENT_VERSION = 13
+ROBOT_COMPONENT_VERSION = 14
 
 
 def json_input(value, default=None):
