@@ -9,7 +9,7 @@ from .geometry import Plane, as_plane
 from .robot_adapter import kinematics_from_robot, configuration_from_values, resolve_arm_joint_names, _active_tool
 from .planning import calculate_partial_trajectory
 
-ROBOT_COMPONENT_VERSION = 20
+ROBOT_COMPONENT_VERSION = 21
 
 
 def json_input(value, default=None):
@@ -21,8 +21,7 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
                collision_meshes=(), model_units_to_metres=1.0, *,
                collision_check=True, check_edges=False, rotation_steps=24,
                joint_ranges=None, max_joint_step=2.5, fixed_joint_values=None,
-               collision_options=None, group=None, parameters=None, scene=None,
-               mobile_options=None):
+               collision_options=None, group=None, parameters=None, scene=None):
     """Plan all targets and return joint rows, named configurations and diagnostics.
 
     Input planes/meshes use model_units_to_metres. Robot model, active tool and
@@ -33,8 +32,6 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
     current_pose is optional; without it the first target has no start constraint.
     Collisions are checked at configurations; check_edges enables sampled edges.
     An externally supplied scene is reused and never closed or populated here.
-    mobile_options enables base search around supplied base-plane seeds; see
-    mobile_planning.plan_mobile_robot_path. Search lengths use metres/radians.
     """
     started = perf_counter()
     if robot is None:
@@ -81,11 +78,10 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
         converted_bases = [as_plane(b, model_units_to_metres) for b in base_items]
     else:
         bcf = getattr(robot, 'BCF', None)
-        region_search = mobile_options is not None and json_input(mobile_options, {}).get('placement_region', False)
-        if bcf is None and not region_search:
+        if bcf is None:
             raise ValueError('Provide base_planes or initialize robot.BCF')
-        converted_bases = [] if region_search else [as_plane(bcf)]  # robot properties are already in metres
-    if len(converted_bases) not in (1, len(targets)) and not (not converted_bases and mobile_options is not None):
+        converted_bases = [as_plane(bcf)]  # robot properties are already in metres
+    if len(converted_bases) not in (1, len(targets)):
         raise ValueError('Provide one footprint base plane or one per target')
     solver = kinematics_from_robot(robot, parameters=json_input(parameters), group=group,
         arm_in_base=as_plane(arm_in_base, model_units_to_metres) if arm_in_base is not None else None,
@@ -127,21 +123,11 @@ def plan_robot(robot, targets, bases=None, current_pose=None, arm_in_base=None, 
         clearance = settings.get('clearance', 0.0)
         edge_options = {k: settings[k] for k in ('joint_resolution', 'base_resolution', 'yaw_resolution') if k in settings}
         setup_seconds = perf_counter()-started
-        if mobile_options is not None:
-            from .mobile_planning import plan_mobile_robot_path
-            result = plan_mobile_robot_path(targets, converted_bases, json_input(mobile_options, {}),
-                ik_solver=solver, current_pose=start, joint_ranges=ranges, periodic=periodic,
-                max_joint_step=max_joint_step, rotation_steps=rotation_steps,
-                base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
-                collision=partial(world.is_valid, clearance=clearance) if world else None,
-                transition_check=partial(world.edge_is_valid, periodic=periodic, clearance=clearance, **edge_options) if world and check_edges else None)
-            converted_bases = result['base_planes']
-        else:
-            result = calculate_partial_trajectory(start, targets, base_planes=converted_bases,
-                ik_solver=solver, rotation_mode='n_steps', rotation_steps=rotation_steps,
-                joint_ranges=ranges, periodic=periodic, max_joint_step=max_joint_step,
-                collision=partial(world.is_valid, clearance=clearance) if world else None,
-                transition_check=partial(world.edge_is_valid, periodic=periodic, clearance=clearance, **edge_options) if world and check_edges else None)
+        result = calculate_partial_trajectory(start, targets, base_planes=converted_bases,
+            ik_solver=solver, rotation_mode='n_steps', rotation_steps=rotation_steps,
+            joint_ranges=ranges, periodic=periodic, max_joint_step=max_joint_step,
+            collision=partial(world.is_valid, clearance=clearance) if world else None,
+            transition_check=partial(world.edge_is_valid, periodic=periodic, clearance=clearance, **edge_options) if world and check_edges else None)
     # Export the lift and planned arm only. Wheel joints remain part of the
     # collision world, but do not belong in the fabrication configuration.
     output_names = [n for n, joint in model_joints.items() if joint.type == 2 and n not in names] + names

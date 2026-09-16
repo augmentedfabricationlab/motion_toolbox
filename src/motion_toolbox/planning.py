@@ -1,4 +1,4 @@
-"""Shared candidate evaluation for stationary, prescribed-base and mobile planning."""
+"""Shared candidate evaluation for stationary and prescribed-base planning."""
 from motion_toolbox.recording import recorded, current_run, metric, event
 import json
 import math

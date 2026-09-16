@@ -1,19 +1,17 @@
 import numpy as np
 import pytest
 from motion_toolbox.geometry import Plane
-from motion_toolbox.base_planning import stationary_base_candidates, stationary_base_guesses, find_stationary_base, plan_mobile_base
+from motion_toolbox.base_planning import stationary_base_candidates, stationary_base_guesses, find_stationary_base
 
 
-def test_generated_grid_covers_bounds_and_can_feed_both_searches():
+def test_generated_grid_covers_bounds_for_stationary_search():
     targets = [Plane.world_xy(), Plane((1,0,0),(1,0,0),(0,1,0))]
     bases = stationary_base_candidates(targets, margin=0, spacing=.5, yaw_steps=1)
     assert np.allclose([b.origin[0] for b in bases], [0,.5,1])
     def ik(t,b):
         return [[float(t.origin[0]-b.origin[0])]]
     fixed = find_stationary_base(targets, bases, [0], ik_solver=ik)
-    mobile = plan_mobile_base(targets, [bases]*len(targets), ik_solver=ik, max_base_step=1)
     assert len(fixed.base_planes) == 1
-    assert len(mobile.base_planes) == len(targets)
 
 
 @pytest.mark.parametrize('kwargs', [{'spacing':0}, {'margin':-1}, {'yaw_steps':1.5}])

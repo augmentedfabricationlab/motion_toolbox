@@ -10,6 +10,29 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.20 - 2026-09-16
+
+- Remove mobile-base search strategies, transition/runtime helpers, mobile-only
+  replay tools and benchmarks, and the mobile_options branch of robot planning.
+  Remove the mobile planner API and its per-target base candidate generator.
+  Keep stationary algorithms, component, calibrated kinematics and collision
+  support intact. Arm planning at caller-prescribed bases remains available.
+- Replace the historical grasshopper_mobile_base.py filepath with an XY-only
+  moving-average experiment. It ignores height/orientation, compares window
+  sizes by length divided by their own endpoint distance (raw length remains
+  available), and returns only averaged geometry. Former base/arm
+  outputs are cleared; no robot or collision world is constructed.
+- Add a NumPy window sweep and an offline Matplotlib comparison graphic with
+  the minimum ratio and shortest raw length highlighted separately. Save line
+  coordinates, length and ratio scores, and provenance outside Git. Length minima are not asserted to prove frequency.
+- Captured 1,607-position sweep over every integer window 10–200 takes about
+  0.06 s: minimum L/D is 1.069312 at 120 points (2.991373 m). Raw length
+  instead selects 200 points (2.987453 m), with a local minimum at 122 points
+  (2.9906 m). Windows are clipped/renormalized at the endpoints.
+- Validation: 168 tests passed, including stationary workflows and XY averaging.
+  Stationary component/region/adapter/calibration files remain byte-identical;
+  retained stationary base-planning functions are AST-identical.
+
 ## 0.1.19 - 2026-09-16
 
 - Bound complete arm-trajectory proposal checks inside the adaptive strategy.

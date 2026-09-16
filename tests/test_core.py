@@ -28,7 +28,7 @@ def test_indexed_path_search_matches_dense_search(count_paths):
 from motion_toolbox.kinematics.ur import inverse_kinematics, forward_kinematics
 from motion_toolbox.kinematics.solver import URKinematics
 from motion_toolbox.planning import calculate_partial_trajectory, rotation_offsets
-from motion_toolbox.base_planning import find_stationary_base, plan_mobile_base, grid_bases
+from motion_toolbox.base_planning import find_stationary_base, grid_bases
 from motion_toolbox.rolling import RollingPlanner
 
 
@@ -141,20 +141,14 @@ def test_partial_rotation_filter_and_collision_base_alignment():
         calculate_partial_trajectory([0], targets, enable_collision_check=True)
 
 
-def test_stationary_requires_every_target_and_mobile_can_change_base():
+def test_stationary_requires_every_target():
     targets = [Plane((x, 0, 1), (1, 0, 0), (0, 1, 0)) for x in (0, 1)]
     bases = grid_bases([0, 1], [0])
     def ik(t, b):
         return [[0]] if abs(t.origin[0]-b.origin[0]) < .1 else []
     stationary = find_stationary_base(targets, bases, [0], ik_solver=ik)
     assert not stationary.base_planes
-    mobile = plan_mobile_base(targets, [bases, bases], ik_solver=ik, max_base_step=1.1)
-    assert [b.origin[0] for b in mobile.base_planes] == [0, 1]
-    assert not plan_mobile_base(targets, [bases, bases], ik_solver=ik, max_base_step=.5).base_planes
-    assert not plan_mobile_base(targets, [bases, bases], ik_solver=ik, max_base_step=2,
-        transition_check=lambda *args: False).base_planes
-    assert not plan_mobile_base(targets, [bases, bases], ik_solver=ik, max_base_step=2,
-        time_intervals=[1], max_base_speed=.5).base_planes
+
 
 
 def test_rolling_buffer_preserves_committed_and_retries_failure():

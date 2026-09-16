@@ -3,7 +3,7 @@
 See [CHANGELOG.md](CHANGELOG.md) for changes between package versions.
 
 Reusable offline IK, PyBullet collision checking, exact layered motion planning,
-stationary base placement, mobile base planning, and rolling replanning.
+stationary base placement, XY position averaging, and rolling replanning.
 The numeric core needs Python 3.9+ and NumPy. Rhino, COMPAS, PyBullet and ROS are
 optional integrations. Lengths are **metres**, joint angles **radians** and target
 indices **zero-based**.
@@ -171,254 +171,48 @@ Environment and tool bodies use explicit distance queries; their automatic conta
 generation is disabled to avoid computing those contacts again during robot self
 checks. This changes query scheduling, not which geometry can reject a pose.
 
-## Stationary printing and printing while driving
+## XY position averaging
 
-### Printing while driving in Grasshopper
+The former mobile-base planner has been removed. Its existing filepath,
+[examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py), now
+runs only an XY averaging experiment. Load the file by path; no repasting is
+required. The stationary-base component remains unchanged.
 
-Use **[examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)**
-as the dedicated base-motion component. Paste it into a Rhino 8 Python 3
-component, with `robot` (Item) and `target_planes` (List, Plane). It generates
-footprint candidates from the stationary finder's placement region at each
-target; no external path generator is needed. The calibrated **arm-base origin**
-must be behind projected target +Z and no farther than **1.75 m in XY**.
-Footprint origins account for the mounting offset at each heading. These rules
-also apply to every interpolated target, with actual IK and collisions checked.
-Optional `seed_base_planes` supplies proposals subject to the same rules.
-`grid_spacing` (default 0.5 metre) and `base_height` use Rhino model units;
-`yaw_steps` defaults to four headings per arm-origin candidate.
+Connect `target_planes` (List, Plane); optionally supply `window_sizes` (List,
+integers). The default tests every integer window from 10 through 200 points
+(or the available range for shorter inputs). Add outputs `averaged_line`,
+`comparison_lines`, `window_sizes_used`, `line_lengths`, `best_window`,
+`selected_length`, `selection_scores`, `shortest_window` and `shortest_length`.
+Old base/arm outputs are cleared. No robot input is needed.
 
-The main output **`base_planes`** has one footprint plane per original TCP
-target on success. `joint_plan` and named `configurations` also contain the
-validated arm plan. To use a separate arm-planning component, connect
-`base_planes` to `grasshopper.py` with the same targets and robot settings.
-The dedicated component defaults to sparse search, fixed TCP orientation,
-and configuration plus sampled transition collision checks. Like the stationary
-finder, region candidates are ordered by standoff, with base-body checks before
-arm IK. Sparse mode retains the first four feasible base candidates at each
-searched target to bound graph size; `max_feasible_bases` can override this
-budget (null removes it). This is approximate and may miss a connected path.
-`sparse:false` searches the complete sampled region without this default cap.
-Candidate IK/collision checks are reused during fallback within the same call.
-`xy_offsets`, `yaw_offsets`, and the old `seed_distance` do not control the
-dedicated region search. `mobile_options` configures sampling and motion limits.
-With `current_pose`, connect
-the matching `start_base` plane in model units. Further options are listed in
-the component's header.
+The experiment projects origins onto world XY, computes centered box averages,
+and selects the smallest **L/D**: polyline length divided by the Euclidean
+distance between that averaged line's own first and last points. Using the same
+original endpoint distance for all candidates would not change the length ranking.
+Set optional `selection_metric="length"` to select solely by raw length.
+The default is `"length_ratio"`. A constant line scores 1; nonconstant lines with
+coincident endpoints have undefined ratios and require another metric.
+It keeps one averaged point per original plane, in order, with Z=0. Input units are retained in Rhino.
+It neither resamples nor deduplicates repeated positions. At the ends, windows
+are clipped and their available weights renormalized. Even windows use symmetric
+half-weight endpoints to avoid half-sample phase shifts. Endpoints can move.
 
-The existing geometric generators in the sibling `sprayed_earth_am` repository
-are `src/sprayed_earth_am/generate_base_path.py` (`wall_pts` -> `base_frames`)
-and `src/sprayed_earth_am/utilities/base_path/create_basepath_from_surface.py`
-(surface edge -> offset planes). These propose footprint paths; they do not
-test arm reach or collision feasibility.
+For an offline comparison graphic using an exported capture:
 
-Feed their ordered planes into `base_planes` on
-[examples/grasshopper.py](examples/grasshopper.py), alongside the full ordered
-`target_planes` and `robot`. This component handles **both stationary and mobile
-arm planning**: one base plane means stationary, one per target means moving.
-Without `mobile_options`, it uses the supplied path unchanged.
-
-To also optimize the base path, add an optional Item input `mobile_options`
-and supply JSON, for example:
-
-```json
-{"sparse":true,"max_gap":20,"max_distance":0.2,"angle":0.15,
- "xy_offsets":[[0,0],[0.1,0],[-0.1,0],[0,0.1],[0,-0.1]],
- "yaw_offsets":[0,0.1,-0.1],"max_base_step":0.25,"max_yaw_step":0.25}
+```powershell
+python validation/plot_xy_averages.py CASE --output OUTSIDE_GIT --min-window 10 --max-window 200
 ```
 
-Offsets are in **world XY metres**, yaw/angle in radians, regardless of the
-Rhino input scale. Candidate offsets are relative to each supplied footprint
-seed, not the TCP. A single seed is also accepted. Output `base_result` and
-`configurations` each have exactly one entry per original TCP target on success;
-failed mobile planning returns empty paths. The cost combines base, yaw and
-joint travel. `mobile_options={}` checks only the supplied seeds, without adding
-offset candidates. Keep `current_pose` empty to omit the approach; if supplied,
-also provide `mobile_options.start_base` as a metre-based numeric plane dictionary
-(`origin`, `x_axis`, `y_axis`).
+The plot helper needs NumPy and Matplotlib; the averaging module only needs
+NumPy. It reads target positions from the manifest-verified case.json, without
+loading robot assets. It writes PNG/PDF comparison graphics, lengths for every
+window, the selected XY line as JSON/CSV, and provenance. All panels use the same
+XY scale. The selected ratio minimum is green; the shortest raw length is gold.
+Both scores are plotted for every window. Local minima can suggest a
+repeat scale, but length alone is not a frequency detector: larger windows may
+shorten the broad curve and move endpoints. Inspect the full length plot.
 
-### Smooth fabrication base path (dedicated mobile component default)
-
-Only `grasshopper_mobile_base.py` has a hardcoded **45-minute wait limit**. Its
-planning job runs in a worker; on expiry the component clears its outputs,
-returns a timeout status and requests cancellation without joining the worker.
-The same component cannot launch a duplicate job until the old worker finishes
-cleanup. The worker never updates Grasshopper outputs. Cancellation occurs at
-the next toolbox function call, letting owned resources unwind normally. A
-native call must return before it can be cancelled; this does not forcibly kill
-Rhino threads, and a native call holding Python's GIL can delay Python execution.
-`grasshopper.py` and direct/shared planning APIs have no automatic time limit.
-
-`grasshopper_mobile_base.py` now defaults to `strategy:"adaptive"`.
-It smooths the world-XY target trend and local normals, searches varying wall
-offset, lateral offset and yaw controls together with arm branches, and adds
-control points where full-resolution validation fails. Good distant regions
-are retained while overlapping neighbourhoods of failures are searched again.
-Only a connected, fully checked path returns output frames. A final smoothing
-pass is accepted only after repeating target, placement, joint and swept-edge
-validation; otherwise the already valid path is retained.
-
-```json
-{"strategy":"adaptive", "adaptive_window":50,
- "adaptive_knot_gap":20, "adaptive_rounds":8}
-```
-
-Default candidate wall distances are `[0.6,0.8,1.0,1.2,1.4]` metres; lateral
-offsets start at `[0.6,0.8,1.0,1.2]` metres and mirror to the other side if needed.
-`wall_distances`, `lateral_offsets` and `yaw_offsets` override the search domain;
-default heading offsets are `[-0.3,0,0.3]` radians from the smoothed wall normal.
-The sparse roadmap is a proposal generator, not a validation shortcut. Original
-motion constraints are applied to every original target and adjacent transition.
-Arm-path proposal validation is bounded before a failed tested transition is
-used to refine the base controls; it does not exhaustively optimize every rejected
-proposal. Such a failure is not proof that no connected arm path exists.
-Recognized URDF UR chains use calibrated FK refinement of analytic IK branches,
-including the actual TCP and independent arm mounting transform.
-
-See [offline replay instructions](validation/MOBILE_REPLAY.md) for bounded,
-killable testing using exported assets without Rhino. A successful geometric
-plan is not a timed controller trajectory; speed bounds require supplied timing.
-
-#### Fixed-offset smooth proposal strategy
-
-Set `strategy:"smooth_offset"` to retain the previous whole-path proposal search.
-The planner creates whole smooth paths first, then validates the robot on each
-path. It does not minimize base travel or choose independent per-target bases.
-Footprint **+X faces the wall**; the roughly one-metre offset is along footprint
-**+Y or -Y**, beside the robot. The wall distance along X is searched separately.
-Offsets are measured from the footprint; reach is checked from the calibrated
-arm origin, with maximum XY reach 1.75 m and the required negative-TCP-Z side.
-
-Fixed-offset strategy defaults (metres regardless of Rhino document units):
-
-```json
-{"strategy":"smooth_offset", "lateral_distance":1.0,
- "wall_distances":[0.4,0.6,0.8,1.0,1.2],
- "smoothing_windows":[10,25,50,100,200], "smooth_max_attempts":12}
-```
-
-Centred moving averages smooth XY positions and projected wall normals. Whole
-paths are ranked by position/heading second differences and departure from the
-TCP trend, rather than total distance travelled. Window sizes count input points;
-uneven input spacing therefore changes their physical smoothing extent. Curves
-use local normal offsets, without assuming a circular shape or scaling centre.
-Both sideways signs are tested; `lateral_offsets` can explicitly override them,
-for example `[-1.2,-1.0,-0.8,0.8,1.0,1.2]`.
-
-Cheap placement checks eliminate unsuitable proposals before IK. The remaining
-paths are tried across smoothing windows and both sideways signs, starting each
-family near 1 m wall clearance before exploring other distances. This prevents
-small score differences from consuming the budget on only one window.
-
-If whole-path proposals fail, `connect_sections:true` (default) tries valid
-partial paths and joins them. Defaults are `section_size:100`,
-`section_proposals:6` and `section_beam_width:2`. Sections overlap by half their
-target count. Position and shortest-arc yaw blend across the overlap using a
-cubic smoothstep. Each joined prefix is solved again as a single arm/base path;
-independent arm configurations are never simply concatenated. The bounded search
-keeps up to two alternatives ranked by smoothness, reuses IK and identical
-transition checks within the same scene, and returns output planes only after
-the entire path passes validation. Logs include section ranges, joins, rejected
-constraints and validated prefix length. Set `connect_sections:false` to disable.
-`benchmarks/mobile_sections_benchmark.py` measures a synthetic stitching case.
-
-If section joining also fails, up to `smooth_repair_attempts` (default 8, zero disables) adjust
-the most promising path around its blocking target. Cosine-tapered X/Y shifts of
-0.15 or 0.30 m extend over at least 50 targets on each side; accepted improvements
-are retained. These are bounded geometric proposals, not relaxed constraints.
-All original 3D TCPs, joint limits and enabled collision/transition
-checks remain enforced, with one base plane per target on success. Diagnostics
-report tried windows, wall distances, sideways offsets and validation failures.
-Failure summaries refer to the best attempt rather than the last one;
-`checked_in_any_attempt` reports aggregate target coverage. Counts and IK states
-from different proposed paths are never combined into a fabricated solution.
-Failure means the bounded proposal search was exhausted, not that fabrication
-is impossible. There is no automatic dense grid fallback in this mode. Seed
-planes, grid spacing, yaw samples and XY keyframe tolerance apply to the discrete
-strategy only. Compare synthetic timing with `benchmarks/smooth_mobile_benchmark.py`.
-
-### Previous discrete/sparse strategy
-
-Use `{"strategy":"discrete","sparse":true}` in the dedicated component for
-the previous regional search, or `{"strategy":"discrete","sparse":false}`
-for uncapped full-domain search. The general numeric adapter retains its existing
-discrete default unless `strategy:"smooth_offset"` or `strategy:"adaptive"` is explicitly supplied.
-
-Sparse mode simplifies **world XY positions** with `xy_tolerance=0.05`
-metres by default. Small sinusoidal ripples within that geometric tolerance can
-be removed while larger square-wave turns, reversals and excursions remain.
-It uses point-to-segment error on the ordered path, not local turn angles or
-every Nth point. Z and TCP roll/pitch do not drive this simplification.
-Projected wall-normal heading changes of `normal_angle=0.35` radians still add
-keyframes to help preserve the correct placement side; set it to null to use
-positions only. `z_tolerance` optionally retains large height changes (default
-null). All original 3D targets are still validated.
-
-The dedicated component has an optional `xy_tolerance` Item input in model
-units (default 0.05 m / 50 mm). No new input is required to use the default.
-The same option in `mobile_options` uses metres and takes precedence, e.g.
-`{"sparse":true,"xy_tolerance":0.05}`. Default `max_gap` and `max_distance` are
-null, so dense sampling and ripple arc length do not force extra keyframes.
-They can be supplied as optional index and XY-displacement safeguards.
-`sampling:"legacy"` restores the old 3D turn/orientation/gap selector.
-
-It searches these keyframes, interpolates
-base translation and shortest-arc upright yaw, then solves arm IK and checks
-constraints at **every original target**. It never interpolates arm joint values.
-Interpolation uses monotone projected progress along the simplified XY segments,
-or elapsed time when `time_intervals` is given. Stationary XY segments use index
-progress; small waves and Z oscillation do not accumulate extra base travel.
-Failed full-resolution validation triggers a dense search of the original candidate
-layers. If a keyframe itself exhausts its candidate region without any feasible
-state, the search stops immediately: dense fallback would have the same empty
-layer. Later regions are generated lazily, so they are not searched after that
-failure. `unreachable_points` lists confirmed failed targets; `unchecked_points`
-lists targets whose feasibility remains unknown. Their candidate counts are
-null, not zero. This is infeasibility of the sampled domain, not proof that no
-continuous placement exists. Diagnostics report retained indices, fallback and
-elapsed time. `sparse:false` retains the full-domain diagnostic search.
-
-Sparse mode is an approximate search: its interpolated placements may lie outside
-the discrete offset set and its cost may differ from the full optimum. Use
-`sparse:false` for exact search over the supplied discrete states. Both modes
-share robot/tool calibration, fixed lift values, model joint limits and collision
-setup with stationary arm planning. Stationary whole-path placement-region rules
-are not imposed on a moving base. Supply environment meshes for obstacle checks.
-Set `collision_check=True` and `check_edges=True` for sampled full-body transition
-collision checks. This is a holonomic geometric planner, not a timed driving
-controller; speed limits require positive `time_intervals` and explicit
-`max_base_speed`, `max_yaw_speed`, and/or `max_joint_speed`. Acceleration and
-nonholonomic steering constraints are not generated by this component.
-
-The numeric APIs are `plan_mobile_base` (exact discrete search) and
-`motion_toolbox.mobile_planning.plan_mobile_sparse` (validated sparse proposal).
-The latter accepts lazy candidate layers and optional collision/transition
-callbacks. Run `benchmarks/mobile_benchmark.py` for a synthetic comparison;
-real robot and obstacle timings depend on the scene and candidate count.
-
-Bounded sparse fallback retains states connected to the preceding target before
-counting them toward `max_feasible_bases`. It first tries continuing previous
-footprints, then the regional candidates. A blocked transition triggers up to
-two local expansions (16, then 64 bases) at that target and its two predecessors;
-IK results are reused. Exhausting this bounded search is not proof that no
-physical path exists. Uncapped supplied-domain search remains exact.
-Failures report the zero-based target pair, rejection counts, measured values
-and limits for base/joint steps and speeds, and available collision-pair details.
-Counts identify the first violated constraint per tested pair; an arbitrary
-transition callback without collision details is reported as `transition_check`.
-The fallback stops at a blocked prefix and marks later targets untested.
-
-Minimum-cost graph search tests transitions in cost order and stops when it
-finds the best valid predecessor. It preserves the same optimum and tie order;
-selected transitions receive the same collision sampling. Exact path-count
-mode still examines all admissible edges. Base-body placement checks skip
-clearly separated link/obstacle pairs using conservative bounding boxes, refreshed
-each call to account for moved geometry. Normal research recording retains
-all rows but batches nested writes at step boundaries (0.5-second checkpoint
-interval), with forced commits at root call boundaries and run close. An
-interrupted process can lose its current uncommitted batch. Package version
-and loaded-code fingerprints remain recorded. Compare these optimizations with
-`python benchmarks/mobile_performance.py --baseline 4ef10ee`; saved component
-measurements are in `benchmarks/mobile_performance.json`.
+## Stationary base planning
 
 For target planes to **one stationary footprint plane** in Grasshopper, paste
 [examples/grasshopper_stationary_base.py](examples/grasshopper_stationary_base.py)
@@ -547,15 +341,12 @@ are cleaned up when the collision world closes. Collision geometry always comes
 from `robot.model`; UR20 is the analytic IK default unless `ur_parameters` is supplied.
 
 `stationary_base_candidates(targets, margin=1.5, spacing=0.5, yaw_steps=4)`
-provides an unconstrained grid independently of Grasshopper (metres/radians). You can feed
-the same domain to each layer of `plan_mobile_base`, or use the existing
-`bases_around_targets` for separate local domains along a driving toolpath.
-Stationary search optimizes one fixed placement; mobile search optimizes a
-sequence with base-motion constraints. Neither automatically refines the grid.
+provides an unconstrained grid independently of Grasshopper (metres/radians).
+Stationary search optimizes one fixed placement within its finite candidate domain.
 
 ```python
 from motion_toolbox.base_planning import (
-    grid_bases, bases_around_targets, find_stationary_base, plan_mobile_base,
+    grid_bases, find_stationary_base,
 )
 from motion_toolbox.stationary_region import StationaryRegion
 
@@ -569,30 +360,12 @@ stationary = find_stationary_base(
 )
 # stationary.base_plane is a single plane when feasible.
 
-domains = bases_around_targets(targets, distances, bearings, yaw_offsets)
-mobile = plan_mobile_base(
-    targets, domains, ik_solver=solver, collision=scene.is_valid,
-    transition_check=scene.edge_is_valid,
-    max_base_step=0.1, max_yaw_step=0.15,
-    time_intervals=durations, max_base_speed=0.05,
-)
-# mobile.base_planes and mobile.configurations each have one entry per target.
 ```
 
 Stationary search requires a connected arm path through **all** targets, not just
 a large total IK count. `evaluate_base_locations` supplies candidate-only counts,
 unreachable indices and the original fitness formula for Grasshopper exploration.
-Mobile planning searches coupled `(base pose, arm joints)` states. Both return
-empty results and infinite cost if no complete path exists; neither silently skips
-unreachable targets. Candidate generators define a finite search domain: optimum
-means optimum within that domain, not globally over continuous space.
-
-Mobile motion currently assumes an upright omnidirectional base. It supports
-translation/yaw/joint-step and time-dependent speed bounds. Use the transition
-callback for additional steering constraints. Acceleration, nonholonomic steering,
-time parameterization and dynamic obstacles are not built-in models. Increase or
-refine the candidate domain when reachability fails. No arbitrary candidate cap
-or beam search silently discards an optimal path.
+A finite candidate domain does not establish a global continuous-space optimum.
 
 Bounded joints use actual angle deltas. Set `periodic` only for physically
 continuous joints; otherwise an apparent short wrap can exceed real limits. The
@@ -630,7 +403,7 @@ local synthetic measurements, not an end-to-end robot performance guarantee.
 
 Run `python -m pytest tests` after installing test and COMPAS extras. Tests cover
 exhaustive optimum comparisons, transforms, FK/IK round trips, partial planning,
-rolling buffer behavior, stationary/mobile feasibility, joint limits, isolated
+rolling buffer behavior, stationary feasibility, joint limits, isolated
 Bullet worlds, tool collisions, swept edges and actual COMPAS object export.
 Source replay matched 100 synthetic and 100 recorded targets; see
 [validation/ik_parity.json](validation/ik_parity.json).

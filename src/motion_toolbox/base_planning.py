@@ -1,4 +1,4 @@
-"""Stationary placement and coupled base/arm trajectory search."""
+"""Stationary base placement and arm trajectory search."""
 from motion_toolbox.recording import recorded, event
 from dataclasses import dataclass, field
 import math
@@ -6,8 +6,7 @@ from time import perf_counter
 import numpy as np
 from .geometry import Plane, as_plane
 from .planning import candidates, calculate_partial_trajectory, rotation_offsets
-from .graph import shortest_path, lazy_shortest_path
-from .mobile_transitions import MobileTransitions
+from .graph import shortest_path
 
 
 @recorded
@@ -17,27 +16,6 @@ def grid_bases(x_values, y_values, yaw_values=(0.0,), z=0.0):
             for x in x_values for y in y_values for a in yaw_values]
 
 
-@recorded
-def bases_around_targets(targets, distances, bearings, yaw_offsets=(0.0,), z=0.0):
-    """Generate upright footprint candidates facing each TCP in the XY plane.
-
-    IK and collision checking select feasibility; this only supplies a search
-    domain. Distances are metres, bearings and yaw offsets are radians.
-    """
-    layers = []
-    for target in targets:
-        p = as_plane(target).origin
-        layer = []
-        for distance in distances:
-            if distance <= 0:
-                raise ValueError('Positive candidate distance required')
-            for bearing in bearings:
-                x, y = p[:2] + distance*np.array([math.cos(bearing), math.sin(bearing)])
-                for offset in yaw_offsets:
-                    yaw = bearing + math.pi + offset
-                    layer.append(Plane((x, y, z), (math.cos(yaw), math.sin(yaw), 0), (-math.sin(yaw), math.cos(yaw), 0)))
-        layers.append(layer)
-    return layers
 
 
 @recorded
@@ -430,191 +408,3 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         selected.update(path_checked=True, path_count=solved.path_count, cost=solved.cost,
             reason='complete' if solved.configurations else 'joint_step_disconnected')
     return best
-
-
-@recorded
-def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_pose=None,
-        start_base=None, collision=None, transition_check=None, offsets=(0.0,), joint_ranges=None,
-        max_base_step=0.25, max_yaw_step=0.25, max_joint_step=2.5,
-        base_weight=1.0, yaw_weight=1.0, joint_weights=None, periodic=None,
-        time_intervals=None, max_base_speed=None, max_yaw_speed=None, max_joint_speed=None,
-        _candidate_cache=None, base_valid=None, max_feasible_bases=None,
-        _stop_on_unreachable=False, _connected_candidates=False, _base_limits=None,
-        _bounded_transition_search=False):
-    """Jointly optimize arm configuration and holonomic base pose per TCP target.
-
-    Exact over the supplied discretized states, with weighted Euclidean step
-    cost. Caller-supplied time_intervals include the initial-to-first interval
-    when start_base is supplied; otherwise they cover target-to-target edges.
-    transition_check(q0, b0, q1, b1) optionally rejects swept collisions or
-    steering constraints. Uncapped search is exact over supplied candidates;
-    bounded connected search retains a feasible prefix and may need expansion.
-    """
-    if len(targets) != len(base_candidates_per_target) or not targets:
-        raise ValueError('Provide a nonempty candidate layer for every target')
-    if (current_pose is None) != (start_base is None):
-        raise ValueError('Specify both current_pose and start_base, or neither')
-    if max_feasible_bases is not None and (int(max_feasible_bases) != max_feasible_bases or max_feasible_bases < 1):
-        raise ValueError('max_feasible_bases must be a positive integer')
-    edge_count = len(targets) if start_base is not None else len(targets)-1
-    if time_intervals is not None:
-        if len(time_intervals) != edge_count or any(t <= 0 or not math.isfinite(t) for t in time_intervals):
-            raise ValueError('One positive duration per edge required')
-    elif any(v is not None for v in (max_base_speed, max_yaw_speed, max_joint_speed)):
-        raise ValueError('Speed constraints require time_intervals')
-    if any(v is not None and (v < 0 or not math.isfinite(v)) for v in (max_base_step, max_yaw_step, max_base_speed, max_yaw_speed)):
-        raise ValueError('Base limits must be finite and nonnegative')
-    transition = MobileTransitions(locals().copy())
-    states, numeric, diagnostics = [], [], []
-    arm_dimension = None
-    for target_index, (target, bases) in enumerate(zip(targets, base_candidates_per_target)):
-        transition.reset()
-        previous = ([(current_pose, as_plane(start_base))] if target_index == 0 and start_base is not None
-                    else states[-1] if states else [])
-        if _connected_candidates and previous:
-            # Continue the previous footprint, or move with the large-scale TCP
-            # displacement, before exploring the independent regional grid.
-            carried, seen, old_seen = [], set(), set()
-            shift = (as_plane(target).origin-as_plane(targets[target_index-1]).origin).copy() if target_index else np.zeros(3)
-            shift[2] = 0
-            for _, oldbase in previous:
-                oldkey = oldbase.matrix.tobytes()
-                if oldkey in old_seen:
-                    continue
-                old_seen.add(oldkey)
-                for proposed in (oldbase, Plane(oldbase.origin+shift, oldbase.xaxis, oldbase.yaxis)):
-                    key = proposed.matrix.tobytes()
-                    if key not in seen:
-                        seen.add(key)
-                        carried.append(proposed)
-            from itertools import chain
-            bases = chain(carried, bases)
-        states_at_target, numeric_at_target = [], []
-        total = dict(checked=True, raw_ik=0, within_joint_limits=0, collision_free=0, rejection_reasons={})
-        feasible_bases = 0
-        for base in bases:
-            base = as_plane(base)
-            if not np.allclose(base.zaxis, (0, 0, 1)):
-                raise ValueError('Mobile bases must be upright')
-            if base_valid is not None and not base_valid(target, base):
-                total['rejection_reasons']['base placement region or body collision'] = total['rejection_reasons'].get('base placement region or body collision', 0)+1
-                continue
-            # Normalize signed zero only; do not merge nearby distinct poses.
-            key = ((as_plane(target).matrix+0.).tobytes(), (base.matrix+0.).tobytes()) if _candidate_cache is not None else None
-            if _candidate_cache is not None and key in _candidate_cache:
-                qs, stats = _candidate_cache[key]
-            else:
-                stats = {}
-                qs, _, _ = candidates(target, base, ik_solver, offsets, collision, joint_ranges, stats=stats)
-                if _candidate_cache is not None:
-                    _candidate_cache[key] = qs, stats
-            for name in ('raw_ik', 'within_joint_limits', 'collision_free'):
-                total[name] += stats[name]
-            for reason, count in stats['rejection_reasons'].items():
-                total['rejection_reasons'][reason] = total['rejection_reasons'].get(reason, 0)+count
-            yaw = math.atan2(base.xaxis[1], base.xaxis[0])
-            base_values = list(base.origin)+[yaw]
-            connected_qs = qs
-            if _connected_candidates and previous:
-                connected_qs = [q for q in qs if next(transition.reachable(target_index, previous, q, base), None) is not None]
-            for q in connected_qs:
-                arm_dimension = len(q) if arm_dimension is None else arm_dimension
-                if len(q) != arm_dimension:
-                    raise ValueError('IK dimensions must match')
-                states_at_target.append((q, base))
-                numeric_at_target.append(base_values+q)
-            if connected_qs:
-                feasible_bases += 1
-                limit = (_base_limits or {}).get(target_index, max_feasible_bases)
-                if limit is not None and feasible_bases >= limit:
-                    break
-        states.append(states_at_target)
-        numeric.append(numeric_at_target)
-        diagnostics.append(total)
-        if not states_at_target and _connected_candidates and total['collision_free']:
-            detail = transition.diagnostic(target_index)
-            detail['search_scope'] = 'retained predecessor states and all supplied bases; not proof of global infeasibility'
-            event('mobile.transition_blocked', **detail)
-            missing = len(targets)-len(states)
-            # This target has feasible IK states, but no connection to the prefix.
-            return BasePlan([], [], float('inf'), [len(s) for s in states[:-1]]+[total['collision_free']]+[None]*missing,
-                [detail], ik_solutions_per_node=[[q for q,b in s] for s in states]+[[] for _ in range(missing)],
-                target_diagnostics=diagnostics+[dict(checked=False) for _ in range(missing)])
-        if not states_at_target and _stop_on_unreachable:
-            missing = len(targets)-len(states)
-            return BasePlan([], [], float('inf'), [len(s) for s in states]+[None]*missing, [],
-                ik_solutions_per_node=[[q for q,b in s] for s in states]+[[] for _ in range(missing)],
-                target_diagnostics=diagnostics+[dict(checked=False) for _ in range(missing)])
-    counts = [len(layer) for layer in states]
-    joint_layers = [[q for q, base in layer] for layer in states]
-    if not all(counts):
-        return BasePlan([], [], float('inf'), counts, [], ik_solutions_per_node=joint_layers,
-                        target_diagnostics=diagnostics)
-    n = arm_dimension
-    if max_joint_speed is not None:
-        speeds = np.asarray(max_joint_speed, dtype=float)
-        if speeds.ndim > 1 or (speeds.ndim == 1 and speeds.shape != (n,)) or not np.isfinite(speeds).all() or np.any(speeds < 0):
-            raise ValueError('Joint speeds must be nonnegative finite scalars or one value per joint')
-    arm_periodic = [False]*n if periodic is None else list(periodic)
-    weights = [base_weight]*3+[yaw_weight]+(list(joint_weights) if joint_weights is not None else [1]*n)
-    start = None
-    if start_base is not None:
-        start_base = as_plane(start_base)
-        if not np.allclose(start_base.zaxis, (0, 0, 1)):
-            raise ValueError('Start base must be upright')
-        start = list(start_base.origin)+[math.atan2(start_base.xaxis[1], start_base.xaxis[0])]+list(current_pose)
-    edge_count = len(targets) if start is not None else len(targets)-1
-    if time_intervals is not None:
-        if len(time_intervals) != edge_count or any(t <= 0 or not math.isfinite(t) for t in time_intervals):
-            raise ValueError('One positive duration per edge required')
-    elif any(v is not None for v in (max_base_speed, max_yaw_speed, max_joint_speed)):
-        raise ValueError('Speed constraints require time_intervals')
-    if any(v is not None and (v < 0 or not math.isfinite(v)) for v in (max_base_step, max_yaw_step, max_base_speed, max_yaw_speed)):
-        raise ValueError('Base limits must be finite and nonnegative')
-
-    def edge(i, a, b):
-        previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a]]
-        q, base = states[i][b]
-        return next(transition.reachable(i, previous, q, base), None) is not None
-
-    # Cheap vectorized bounds reject distant states before Python edge callbacks.
-    # The callback still enforces the Euclidean translation and timed limits.
-    limits = [np.inf if max_base_step is None else max_base_step]*3 + [np.inf if max_yaw_step is None else max_yaw_step] + np.broadcast_to(np.inf if max_joint_step is None else max_joint_step, (n,)).tolist()
-    graph_options = dict(start=start, weights=weights, periodic=[False]*3+[True]+arm_periodic,
-                         max_step=limits, count_paths=False)
-    if transition_check is None:
-        solved = shortest_path(numeric, edge_valid=edge, **graph_options)
-    else:
-        cheap_transition = MobileTransitions(dict(transition.options, transition_check=None))
-        def cheap_edge(i, a, b):
-            previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a]]
-            q, base = states[i][b]
-            return next(cheap_transition.reachable(i, previous, q, base), None) is not None
-        # A fixed base proposal per target has identical base bounds for every
-        # arm branch. Screen those once; graph max_step already screens joints.
-        fixed_base_path = all(all(b is layer[0][1] for _,b in layer) for layer in states)
-        if fixed_base_path and all(v is None for v in (max_base_speed,max_yaw_speed,max_joint_speed)):
-            path_bases = ([start_base] if start is not None else [])+[layer[0][1] for layer in states]
-            base_bounds_ok = all(
-                (max_base_step is None or np.linalg.norm(b.origin-a.origin) <= max_base_step) and
-                (max_yaw_step is None or abs((math.atan2(b.xaxis[1],b.xaxis[0])-
-                    math.atan2(a.xaxis[1],a.xaxis[0])+math.pi)%(2*math.pi)-math.pi) <= max_yaw_step)
-                for a,b in zip(path_bases,path_bases[1:]))
-            if base_bounds_ok:
-                cheap_edge = None
-        solved = lazy_shortest_path(numeric, edge_valid=edge, cheap_edge_valid=cheap_edge,
-            exhaustive_fallback=not _bounded_transition_search, **graph_options)
-    chosen_bases = [states[i][j][1] for i, j in enumerate(solved.indices)]
-    blocked = []
-    if solved.failure_layer is not None:
-        i = solved.failure_layer
-        transition.reset()
-        previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a] for a in solved.reachable_indices]
-        for q, base in states[i]:
-            list(transition.reachable(i, previous, q, base))
-        blocked = [transition.diagnostic(i)]
-        if _bounded_transition_search:
-            blocked[0]['search_scope'] = 'bounded complete-path proposals; failed tested transition is not proof of graph disconnection'
-        event('mobile.transition_blocked', **blocked[0])
-    return BasePlan(chosen_bases, [q[4:] for q in solved.configurations], solved.cost, counts, blocked,
-                    ik_solutions_per_node=joint_layers, target_diagnostics=diagnostics)
