@@ -10,20 +10,25 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
-## 0.1.13 - 2026-09-16
+## 0.1.14 - 2026-09-16
 
-- Add a hardcoded 2,700-second elapsed deadline to the shared robot-planning
-  entrypoint. Proposals, section joining, local repairs and nested calls share
-  one budget; cancellation checks cover candidate, graph and collision loops.
-- Unwind resources on timeout and return clear timeout status, stage and elapsed
-  timing with empty paths from both Grasshopper robot-planning scripts. A new
-  invocation gets a fresh deadline. No dependencies added.
-- Cancellation is cooperative between operations, not a forced Rhino thread
-  termination; an in-progress native call and cleanup can exceed the deadline.
-- Validation: 216 full-suite tests passed, followed by eight focused deadline
-  tests including both real component scripts, nested budgets, cleanup and loop
-  interruption. Synthetic 1,607-target benchmark preserved all outputs and
-  1,607 IK/collision plus 1,606 transition calls. No 45-minute live Rhino run.
+- Revert 0.1.13's shared planning deadline and all injected planner/collision
+  checkpoints. Shared APIs and grasshopper.py again have no automatic deadline.
+- Scope the 45-minute wait limit to grasshopper_mobile_base.py. Run its planning
+  job in a worker; return empty outputs and timeout status without waiting for
+  worker cleanup. Request cancellation at toolbox function boundaries and block
+  duplicate runs of that component until the prior worker finishes.
+- Never forcibly terminate native threads. An in-progress native operation must
+  return for cancellation; a native call holding the GIL can delay Python code.
+- Validation: 214 tests passed, covering worker timeout/cancellation, cleanup, duplicate-run protection,
+  mobile-only scope and component entrypoints tested. Synthetic 1,607-target
+  workload retained identical IK/collision/transition counts (0.51 s direct,
+  0.94 s through the worker). No live 45-minute Rhino run or dependency changes.
+
+## 0.1.13 - 2026-09-16 (reverted in 0.1.14)
+
+- Introduced a shared 45-minute planning deadline. Reverted at the user's request
+  because timeout handling belongs specifically to grasshopper_mobile_base.py.
 
 ## 0.1.12 - 2026-09-16
 

@@ -1,5 +1,4 @@
 """Stationary placement and coupled base/arm trajectory search."""
-from .runtime import check_deadline
 from motion_toolbox.recording import recorded, event
 from dataclasses import dataclass, field
 import math
@@ -14,7 +13,6 @@ from .mobile_transitions import MobileTransitions
 @recorded
 def grid_bases(x_values, y_values, yaw_values=(0.0,), z=0.0):
     """Explicit bounded search domain; yaw values are radians."""
-    check_deadline('base_planning.grid_bases')
     return [Plane((x, y, z), (math.cos(a), math.sin(a), 0), (-math.sin(a), math.cos(a), 0))
             for x in x_values for y in y_values for a in yaw_values]
 
@@ -26,21 +24,16 @@ def bases_around_targets(targets, distances, bearings, yaw_offsets=(0.0,), z=0.0
     IK and collision checking select feasibility; this only supplies a search
     domain. Distances are metres, bearings and yaw offsets are radians.
     """
-    check_deadline('base_planning.bases_around_targets')
     layers = []
     for target in targets:
-        check_deadline('base_planning.bases_around_targets')
         p = as_plane(target).origin
         layer = []
         for distance in distances:
-            check_deadline('base_planning.bases_around_targets')
             if distance <= 0:
                 raise ValueError('Positive candidate distance required')
             for bearing in bearings:
-                check_deadline('base_planning.bases_around_targets')
                 x, y = p[:2] + distance*np.array([math.cos(bearing), math.sin(bearing)])
                 for offset in yaw_offsets:
-                    check_deadline('base_planning.bases_around_targets')
                     yaw = bearing + math.pi + offset
                     layer.append(Plane((x, y, z), (math.cos(yaw), math.sin(yaw), 0), (-math.sin(yaw), math.cos(yaw), 0)))
         layers.append(layer)
@@ -57,7 +50,6 @@ def stationary_base_guesses(targets, *, arm_in_base=None, distance=1.0,
     to footprint origins using the mounting offset. All seeds stay within the
     target XY bounds plus margin. These are proposals, not reach/collision tests.
     """
-    check_deadline('base_planning.stationary_base_guesses')
     targets = [as_plane(t) for t in targets]
     if not targets:
         raise ValueError('At least one target required')
@@ -72,7 +64,6 @@ def stationary_base_guesses(targets, *, arm_in_base=None, distance=1.0,
     center = xy.mean(axis=0)
     median = center.copy()
     for _ in range(200):
-        check_deadline('base_planning.stationary_base_guesses')
         lengths = np.sqrt(np.sum((xy-median)**2, axis=1)+(points[:, 2]-height)**2)
         weights = 1 / np.maximum(lengths, 1e-9)
         updated = np.average(xy, axis=0, weights=weights)
@@ -96,18 +87,14 @@ def stationary_base_guesses(targets, *, arm_in_base=None, distance=1.0,
     if np.linalg.norm(normal) > 1e-8:
         normals.append(normal/np.linalg.norm(normal))
     for normal in normals:
-        check_deadline('base_planning.stationary_base_guesses')
         for sign in (-1, 1):
-            check_deadline('base_planning.stationary_base_guesses')
             centers.append(median+sign*distance*normal)
     lower, upper = xy.min(axis=0)-margin, xy.max(axis=0)+margin
     result, seen = [], set()
     for arm_xy in centers:
-        check_deadline('base_planning.stationary_base_guesses')
         toward = center-arm_xy
         facing = math.atan2(toward[1], toward[0]) if np.linalg.norm(toward) > 1e-8 else 0.0
         for yaw in facing + np.arange(int(yaw_steps))*2*math.pi/yaw_steps:
-            check_deadline('base_planning.stationary_base_guesses')
             c, s = math.cos(yaw), math.sin(yaw)
             rotated_offset = np.array([c*mount.origin[0]-s*mount.origin[1],
                                        s*mount.origin[0]+c*mount.origin[1]])
@@ -134,7 +121,6 @@ def stationary_base_candidates(targets, *, margin=1.5, spacing=0.5,
     evaluated first, with duplicate grid placements removed. Refine spacing/yaw
     or enlarge margin if the supplied domain misses a feasible placement.
     """
-    check_deadline('base_planning.stationary_base_candidates')
     targets = [as_plane(t) for t in targets]
     if not targets:
         raise ValueError('At least one target required')
@@ -148,7 +134,6 @@ def stationary_base_candidates(targets, *, margin=1.5, spacing=0.5,
     grid = grid_bases(*axes, yaw_values=np.arange(int(yaw_steps))*2*math.pi/yaw_steps, z=z)
     result, seen = [], set()
     for base in list(initial_guesses) + grid:
-        check_deadline('base_planning.stationary_base_candidates')
         base = as_plane(base)
         key = tuple(np.round(base.matrix.ravel(), 9))
         if key not in seen:
@@ -178,7 +163,6 @@ class BasePlan:
     @property
     def base_plane(self):
         """Single stationary base; moving results use base_planes."""
-        check_deadline('base_planning.base_plane')
         if len(self.base_planes) != 1:
             raise ValueError('Result does not contain one stationary base')
         return self.base_planes[0]
@@ -192,13 +176,10 @@ def evaluate_base_locations(targets, base_candidates, *, ik_solver, collision=No
     Counts every target (never silently subsamples). A high count is a useful
     diagnostic, not proof that the layers have a connected motion path.
     """
-    check_deadline('base_planning.evaluate_base_locations')
     results = []
     for base in base_candidates:
-        check_deadline('base_planning.evaluate_base_locations')
         counts, before = [], []
         for target in targets:
-            check_deadline('base_planning.evaluate_base_locations')
             q, raw, _ = candidates(target, base, ik_solver, offsets, collision, joint_ranges)
             counts.append(len(q))
             before.append(raw)
@@ -230,7 +211,6 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
     Omit current_pose to optimize only target-to-target travel, without an
     assumed initial configuration or approach transition.
     """
-    check_deadline('base_planning.find_stationary_base')
     if not targets:
         raise ValueError('At least one target required for placement search')
     if objective == 'heuristic':
@@ -251,7 +231,6 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
     best = BasePlan([], [], float('inf'), [], [])
     best_rank = None
     for base in base_candidates:
-        check_deadline('base_planning.find_stationary_base')
         base = as_plane(base)
         geometry = placement_region.metrics(base) if placement_region is not None else {}
         if geometry and not geometry['geometry_valid']:
@@ -273,7 +252,6 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
         edge_callback = options.get('edge_valid')
         if transition_check is not None or edge_callback is not None:
             def edge(i, a, b):
-                check_deadline('base_planning.edge')
                 if edge_callback is not None and not edge_callback(i, a, b):
                     return False
                 q0 = current_pose if i == 0 else layers[i-1][a]
@@ -312,13 +290,11 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
     headings; IK reach failures move inward. Retry failed targets first.
     No IK counts are computed for ranking and at most one path is constructed.
     """
-    check_deadline('base_planning._find_stationary_base_heuristic')
     if int(attempts) != attempts or attempts < 1:
         raise ValueError('max_validation_attempts must be a positive integer')
     ranked = []
     diagnostics = []
     for base in bases:
-        check_deadline('base_planning._find_stationary_base_heuristic')
         base = as_plane(base)
         metrics = region.metrics(base)
         if metrics['geometry_valid']:
@@ -339,7 +315,6 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
         # A reach-boundary point can fail in 3D even though its XY radius fits.
         # Move meaningfully inward after failure, not sideways along that same
         # boundary or through every heading at the same overextended location.
-        check_deadline('base_planning._find_stationary_base_heuristic')
         index = next((i for i, (_, m) in enumerate(ranked)
                       if (previous_standoff is None or m['standoff'] <= .75*previous_standoff)
                       and all(np.linalg.norm(np.array(m['arm_origin'])[:2]-p) > .1 for p in tried)),
@@ -384,14 +359,12 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
 def _find_stationary_base_by_options(targets, bases, current_pose, solver, collision,
                                      region, build_path, options):
     """Configuration-only ranking with early rejection and one winner's graph."""
-    check_deadline('base_planning._find_stationary_base_by_options')
     offsets = rotation_offsets(options.get('rotation_mode', False),
         options.get('rotation_angle_deg', 5), options.get('rotation_steps', 35),
         options.get('angle_cw_deg', 0), options.get('angle_ccw_deg', 0))
     best = BasePlan([], [], float('inf'), [], [])
     best_layers, best_rank, selected = None, None, None
     for base in bases:
-        check_deadline('base_planning._find_stationary_base_by_options')
         base = as_plane(base)
         geometry = region.metrics(base) if region is not None else {}
         diagnostic = dict(base_plane=base, cost=float('inf'), unreachable_points=[],
@@ -413,12 +386,10 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         priority = options.get('_priority_targets', [])
         order = list(dict.fromkeys(list(priority) + list(range(len(targets)))))
         for i in order:
-            check_deadline('base_planning._find_stationary_base_by_options')
             target = targets[i]
             stats = {}
             qs, before, _ = candidates(target, base, solver, offsets, collision, options.get('joint_ranges'), stats=stats)
             for name in diagnostic['timings']:
-                check_deadline('base_planning._find_stationary_base_by_options')
                 diagnostic['timings'][name] += stats[name]
             layers[i] = qs
             raw[i] = before
@@ -478,7 +449,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
     steering constraints. Uncapped search is exact over supplied candidates;
     bounded connected search retains a feasible prefix and may need expansion.
     """
-    check_deadline('base_planning.plan_mobile_base')
     if len(targets) != len(base_candidates_per_target) or not targets:
         raise ValueError('Provide a nonempty candidate layer for every target')
     if (current_pose is None) != (start_base is None):
@@ -497,7 +467,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
     states, numeric, diagnostics = [], [], []
     arm_dimension = None
     for target_index, (target, bases) in enumerate(zip(targets, base_candidates_per_target)):
-        check_deadline('base_planning.plan_mobile_base')
         transition.reset()
         previous = ([(current_pose, as_plane(start_base))] if target_index == 0 and start_base is not None
                     else states[-1] if states else [])
@@ -508,13 +477,11 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
             shift = (as_plane(target).origin-as_plane(targets[target_index-1]).origin).copy() if target_index else np.zeros(3)
             shift[2] = 0
             for _, oldbase in previous:
-                check_deadline('base_planning.plan_mobile_base')
                 oldkey = oldbase.matrix.tobytes()
                 if oldkey in old_seen:
                     continue
                 old_seen.add(oldkey)
                 for proposed in (oldbase, Plane(oldbase.origin+shift, oldbase.xaxis, oldbase.yaxis)):
-                    check_deadline('base_planning.plan_mobile_base')
                     key = proposed.matrix.tobytes()
                     if key not in seen:
                         seen.add(key)
@@ -525,7 +492,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         total = dict(checked=True, raw_ik=0, within_joint_limits=0, collision_free=0, rejection_reasons={})
         feasible_bases = 0
         for base in bases:
-            check_deadline('base_planning.plan_mobile_base')
             base = as_plane(base)
             if not np.allclose(base.zaxis, (0, 0, 1)):
                 raise ValueError('Mobile bases must be upright')
@@ -542,10 +508,8 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
                 if _candidate_cache is not None:
                     _candidate_cache[key] = qs, stats
             for name in ('raw_ik', 'within_joint_limits', 'collision_free'):
-                check_deadline('base_planning.plan_mobile_base')
                 total[name] += stats[name]
             for reason, count in stats['rejection_reasons'].items():
-                check_deadline('base_planning.plan_mobile_base')
                 total['rejection_reasons'][reason] = total['rejection_reasons'].get(reason, 0)+count
             yaw = math.atan2(base.xaxis[1], base.xaxis[0])
             base_values = list(base.origin)+[yaw]
@@ -553,7 +517,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
             if _connected_candidates and previous:
                 connected_qs = [q for q in qs if next(transition.reachable(target_index, previous, q, base), None) is not None]
             for q in connected_qs:
-                check_deadline('base_planning.plan_mobile_base')
                 arm_dimension = len(q) if arm_dimension is None else arm_dimension
                 if len(q) != arm_dimension:
                     raise ValueError('IK dimensions must match')
@@ -609,7 +572,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         raise ValueError('Base limits must be finite and nonnegative')
 
     def edge(i, a, b):
-        check_deadline('base_planning.edge')
         previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a]]
         q, base = states[i][b]
         return next(transition.reachable(i, previous, q, base), None) is not None
@@ -626,7 +588,6 @@ def plan_mobile_base(targets, base_candidates_per_target, *, ik_solver, current_
         transition.reset()
         previous = [(current_pose, start_base)] if i == 0 else [states[i-1][a] for a in solved.reachable_indices]
         for q, base in states[i]:
-            check_deadline('base_planning.plan_mobile_base')
             list(transition.reachable(i, previous, q, base))
         blocked = [transition.diagnostic(i)]
         event('mobile.transition_blocked', **blocked[0])

@@ -1,5 +1,4 @@
 """Exact shortest path on an implicit layered directed acyclic graph."""
-from .runtime import check_deadline
 from motion_toolbox.recording import recorded, event, metric
 from dataclasses import dataclass
 import numpy as np
@@ -22,7 +21,6 @@ def _winding_layer(previous, current, costs, counts, weights, limits, count_path
     a given physical pose can reach a particular next state. Joint limits remain
     enforced by the actual states present in the lookup table.
     """
-    check_deadline('graph._winding_layer')
     period = 2*np.pi
     principal = (previous+np.pi) % period-np.pi
     _, first, groups = np.unique(np.round(principal, 10), axis=0,
@@ -47,7 +45,6 @@ def _winding_layer(previous, current, costs, counts, weights, limits, count_path
     parents_all = np.empty(len(current), dtype=int)
     counts_all = []
     for offset in range(0, len(current), 128):
-        check_deadline('graph._winding_layer')
         block = current[offset:offset+128]
         required = np.rint((block[:,None,:]-representatives[None,:,:])/period).astype(np.int64)
         valid = np.all((required >= lower) & (required <= upper), axis=2)
@@ -86,7 +83,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     revolute_joints identifies angular axes eligible for full-turn indexing;
     it does not make bounded joints periodic or remove their limits.
     """
-    check_deadline('graph.shortest_path')
     if chunk_size < 1:
         raise ValueError('chunk_size must be positive')
     if not layers:
@@ -121,7 +117,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
         counts = [1]
         begin = 0
     for i in range(begin, len(arrays)):
-        check_deadline('graph.shortest_path')
         if i > 0:
             previous = arrays[i-1]
         current = arrays[i]
@@ -147,14 +142,12 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
             orders = [active[np.argsort(previous[active, axis], kind='stable')] for axis in axes]
             lower, upper = [], []
             for axis, order in zip(axes, orders):
-                check_deadline('graph.shortest_path')
                 sorted_values = previous[order, axis]
                 lower.append(np.searchsorted(sorted_values, current[:, axis]-limit[axis]-1e-12))
                 upper.append(np.searchsorted(sorted_values, current[:, axis]+limit[axis]+1e-12, side='right'))
             lower, upper = np.array(lower), np.array(upper)
             selective = (upper-lower).argmin(axis=0)
             for b, axis_index in enumerate(selective):
-                check_deadline('graph.shortest_path')
                 indices = np.sort(orders[axis_index][lower[axis_index,b]:upper[axis_index,b]])
                 if not len(indices):
                     continue
@@ -167,7 +160,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
                     # Cost order is exact for a layered DAG: the first valid
                     # predecessor wins. Stable sorting preserves original ties.
                     for chosen in np.argsort(values, kind='stable'):
-                        check_deadline('graph.shortest_path')
                         a = int(indices[chosen])
                         if edge_valid(i, a if i > 0 else -1, b):
                             next_costs[b], pred[b] = values[chosen], a
@@ -192,7 +184,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
             parents.append(pred)
             continue
         for offset in range(0, len(current), chunk_size):
-            check_deadline('graph.shortest_path')
             block = current[offset:offset+chunk_size]
             delta = block[None, :, :] - previous[:, None, :]
             delta[..., periodic] = (delta[..., periodic]+np.pi) % (2*np.pi)-np.pi
@@ -200,9 +191,7 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
             values[np.any(np.abs(delta) > limit, axis=2)] = np.inf
             if edge_valid is not None and not count_paths:
                 for b in range(len(block)):
-                    check_deadline('graph.shortest_path')
                     for a in np.argsort(values[:, b], kind='stable'):
-                        check_deadline('graph.shortest_path')
                         if not np.isfinite(values[a,b]):
                             break
                         if edge_valid(i, int(a) if i > 0 else -1, int(offset+b)):
@@ -211,13 +200,11 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
                 continue
             if edge_valid is not None:
                 for a, b in np.argwhere(np.isfinite(values)):
-                    check_deadline('graph.shortest_path')
                     if not edge_valid(i, int(a) if i > 0 else -1, int(offset+b)):
                         values[a, b] = np.inf
             # Python integers preserve exact counts even for very long paths.
             if count_paths:
                 for b in range(len(block)):
-                    check_deadline('graph.shortest_path')
                     next_counts[offset+b] = sum(counts[a] for a in np.flatnonzero(np.isfinite(values[:, b])))
             chosen = values.argmin(axis=0)
             selected = values[chosen, np.arange(len(block))]
@@ -236,7 +223,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     total = float(costs[index])
     indices = [index]
     for i in range(len(arrays)-1, 0, -1):
-        check_deadline('graph.shortest_path')
         index = int(parents[i][index])
         indices.append(index)
     indices.reverse()
@@ -244,7 +230,6 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     # Return the same continuous-joint representatives used by the edge cost.
     ref = np.asarray(start) if start is not None else configs[0]
     for q in configs:
-        check_deadline('graph.shortest_path')
         q[periodic] = ref[periodic] + (q[periodic]-ref[periodic]+np.pi) % (2*np.pi)-np.pi
         ref = q
     return GraphResult([q.tolist() for q in configs], indices, total, sum(counts) if count_paths else 0)

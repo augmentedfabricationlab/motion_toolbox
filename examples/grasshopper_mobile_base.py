@@ -72,7 +72,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.13':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.14':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -91,7 +91,7 @@ def _refresh_planner():
     parameters = inspect.signature(modules[-1].plan_robot).parameters
     stale = ('current_pose' not in parameters or
              parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 17
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 18
     stale = stale or any(
         getattr(module, '_robot_component_stamp', stamp(module)) != stamp(module)
         for module in modules)
@@ -104,7 +104,7 @@ def _refresh_planner():
         module._robot_component_stamp = stamp(module)
 
 
-def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_joint_names=None,
+def _plan_worker(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_joint_names=None,
          collision_meshes=(), model_units_to_metres=1.0, **options):
     """Callable from standalone Python too; no Grasshopper imports required."""
     _refresh_planner()
@@ -126,6 +126,14 @@ def plan(robot, targets, bases=None, current_pose=None, arm_in_base=None, arm_jo
     options['mobile_options'] = settings
     return plan_robot(robot, targets, bases, current_pose, arm_in_base, arm_joint_names,
                       collision_meshes, model_units_to_metres, **options)
+
+
+def plan(*args, **options):
+    """Only this component uses a time-bounded worker; planner APIs are unchanged."""
+    from motion_toolbox.mobile_component_runtime import run_mobile_component
+    component = getattr(globals().get('ghenv'), 'Component', None)
+    key = str(getattr(component, 'InstanceGuid', 'mobile_base'))
+    return run_mobile_component(_plan_worker, *args, component_key=key, **options)
 
 
 def _input(name, default=None):
@@ -214,7 +222,7 @@ except Exception as error:
     status = '{}: {}'.format(type(error).__name__, error)
     if getattr(error, 'timed_out', False):
         timings = {'timed_out': True, 'total_seconds': error.elapsed_seconds}
-        diagnostics = [str(error), 'Stopped during: ' + error.stage]
+        diagnostics = [str(error)]
 
 # Primary output for the downstream arm-planning component.
 base_planes = base_result

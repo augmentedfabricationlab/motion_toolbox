@@ -238,15 +238,15 @@ also provide `mobile_options.start_base` as a metre-based numeric plane dictiona
 
 ### Smooth fabrication base path (dedicated mobile component default)
 
-The shared robot-planning entrypoint has a hardcoded **45-minute elapsed-time
-budget** per invocation. Global proposals, section joining and repairs share the
-same deadline; retries do not restart it. Checks inside candidate, graph and
-collision loops abort overdue work and unwind owned scene resources. Grasshopper
-returns empty path outputs, a `PlanningTimeout` status naming the stage, and
-`timings.timed_out=true`. Recomputing starts a fresh budget. No input overrides
-the limit. Cancellation is cooperative: an individual native/driver call already
-running must return before Python can stop it, and cleanup may take extra time.
-This does not forcibly terminate Rhino threads or bound a hung native call.
+Only `grasshopper_mobile_base.py` has a hardcoded **45-minute wait limit**. Its
+planning job runs in a worker; on expiry the component clears its outputs,
+returns a timeout status and requests cancellation without joining the worker.
+The same component cannot launch a duplicate job until the old worker finishes
+cleanup. The worker never updates Grasshopper outputs. Cancellation occurs at
+the next toolbox function call, letting owned resources unwind normally. A
+native call must return before it can be cancelled; this does not forcibly kill
+Rhino threads, and a native call holding Python's GIL can delay Python execution.
+`grasshopper.py` and direct/shared planning APIs have no automatic time limit.
 
 `grasshopper_mobile_base.py` now defaults to `strategy:"smooth_offset"`.
 The planner creates whole smooth paths first, then validates the robot on each

@@ -1,5 +1,4 @@
 """Persistent, isolated PyBullet collision worlds; no dependency on Rhino."""
-from .runtime import check_deadline
 from motion_toolbox.recording import recorded, event
 import math
 from pathlib import Path
@@ -82,7 +81,6 @@ class PybulletServer:
 
     @recorded
     def load_robot(self, urdf_path, *, joint_names=None, base=None):
-        check_deadline('collision.load_robot')
         if self.robot is not None:
             raise ValueError('Create a new world to replace the robot')
         path = Path(urdf_path).resolve()
@@ -103,7 +101,6 @@ class PybulletServer:
                 try:
                     tree = ET.parse(diagnostic_path)
                     for mesh in tree.iter('mesh'):
-                        check_deadline('collision.load_robot')
                         original = Path(mesh.get('filename', ''))
                         if original.is_absolute() and original.parent == path.parent:
                             mesh.set('filename', (folder / original.name).as_posix())
@@ -119,7 +116,6 @@ class PybulletServer:
         parents = {}
         self.fixed_neighbors = {}
         for i in range(p.getNumJoints(self.robot)):
-            check_deadline('collision.load_robot')
             info = p.getJointInfo(self.robot, i)
             self.links[info[12].decode()] = i
             adjacent.add(frozenset((i, info[16])))
@@ -140,7 +136,6 @@ class PybulletServer:
                                      if p.getCollisionShapeData(self.robot, i))
         def follows_planned_joint(index):
             while index != -1:
-                check_deadline('collision.load_robot')
                 if index in self.joints:
                     return True
                 index = parents[index]
@@ -149,7 +144,6 @@ class PybulletServer:
         self._joint_limits = []
         self._joint_types = []
         for i in self.joints:
-            check_deadline('collision.load_robot')
             info = p.getJointInfo(self.robot, i)
             self._joint_limits.append((info[8], info[9]))
             self._joint_types.append(info[2])
@@ -164,7 +158,6 @@ class PybulletServer:
         # Tell Bullet which self pairs matter so its broadphase can skip fixed
         # assembly and explicitly allowed contacts before narrow-phase testing.
         for a, b in itertools.combinations(self.links.values(), 2):
-            check_deadline('collision.load_robot')
             p.setCollisionFilterPair(self.robot, self.robot, a, b,
                                      int(frozenset((a,b)) in self._self_pair_keys))
         self.set_base(Plane.world_xy() if base is None else base)
@@ -214,7 +207,6 @@ class PybulletServer:
     @recorded
     def add_mesh(self, mesh, *, plane=None, scale=1.0):
         """Environment mesh: filename or (vertices, faces), in metres."""
-        check_deadline('collision.add_mesh')
         p = self.p
         if not math.isfinite(scale) or scale <= 0:
             raise ValueError('Positive mesh scale required')
@@ -261,7 +253,6 @@ class PybulletServer:
 
     @recorded
     def attach_mesh(self, mesh, link_name, *, frame=None, touch_links=()):
-        check_deadline('collision.attach_mesh')
         if link_name not in self.links or any(n not in self.links for n in touch_links):
             raise ValueError('Unknown tool attachment/touch link')
         # A convex hull is conservative for attached tool collision geometry.
@@ -277,9 +268,7 @@ class PybulletServer:
         mounting_links = {self.links[link_name]}
         pending = list(mounting_links)
         while pending:
-            check_deadline('collision.attach_mesh')
             for index in self.fixed_neighbors.get(pending.pop(), ()):
-                check_deadline('collision.attach_mesh')
                 if index not in mounting_links:
                     mounting_links.add(index)
                     pending.append(index)
@@ -305,7 +294,6 @@ class PybulletServer:
         Internal assembly contacts are not part of this base-placement test.
         Moving arm links and attached tools are checked later by is_valid.
         """
-        check_deadline('collision.is_base_valid')
         self.last_failure = None
         if clearance < 0 or not math.isfinite(clearance):
             raise ValueError('Clearance must be nonnegative')
@@ -319,12 +307,10 @@ class PybulletServer:
         combined = (tuple(min(b[0][i] for b in bounds.values()) for i in range(3)),
                     tuple(max(b[1][i] for b in bounds.values()) for i in range(3)))
         for obstacle_index, (obstacle, ignored) in enumerate(self.environment):
-            check_deadline('collision.is_base_valid')
             obstacle_bounds = self.p.getAABB(obstacle)
             if not self._bounds_overlap(combined, obstacle_bounds, clearance):
                 continue
             for link in self.static_links - ignored:
-                check_deadline('collision.is_base_valid')
                 if not self._bounds_overlap(bounds[link], obstacle_bounds, clearance):
                     continue
                 if self.p.getClosestPoints(self.robot, obstacle, clearance, linkIndexA=link):
@@ -363,7 +349,6 @@ class PybulletServer:
 
     @recorded(detail=True)
     def is_valid(self, configuration, base=None, *, clearance=0.0):
-        check_deadline('collision.is_valid')
         self.last_failure = None
         if self.robot is None:
             raise ValueError('Load a robot before checking collisions')
@@ -373,7 +358,6 @@ class PybulletServer:
         if clearance < 0 or not math.isfinite(clearance):
             raise ValueError('Clearance must be nonnegative')
         for name, value, (lo, hi) in zip(self.joint_names, q, self._joint_limits):
-            check_deadline('collision.is_valid')
             if lo <= hi and not lo <= value <= hi:
                 self.last_failure = 'joint limit: {} ({} outside [{}, {}])'.format(name, value, lo, hi)
                 return False
@@ -381,7 +365,6 @@ class PybulletServer:
             self.set_base(base)
         p = self.p
         for index, value in zip(self.joints, q):
-            check_deadline('collision.is_valid')
             p.resetJointState(self.robot, index, value)
         self._update_tools()
         # Contact generation uses Bullet's broadphase. getClosestPoints(body,
@@ -392,7 +375,6 @@ class PybulletServer:
         else:
             contacts = p.getClosestPoints(self.robot, self.robot, clearance)
         for contact in contacts:
-            check_deadline('collision.is_valid')
             if contact[8] > clearance:
                 continue
             if frozenset((contact[3], contact[4])) in self._self_pair_keys:
@@ -406,26 +388,21 @@ class PybulletServer:
             tool_bounds = [p.getAABB(body) for body, _, _, _ in self.tools]
         for obstacle_index, (obstacle, ignored) in enumerate(self.environment):
             # Query current bounds so external scene movement cannot leave a stale cache.
-            check_deadline('collision.is_valid')
             obstacle_bounds = p.getAABB(obstacle)
             contacts = (p.getClosestPoints(self.robot, obstacle, clearance)
                         if self._bounds_overlap(robot_bounds, obstacle_bounds, clearance) else ())
             for c in contacts:
-                check_deadline('collision.is_valid')
                 if c[3] not in ignored:
                     self.last_failure = 'environment collision: {} / collision_meshes[{}]'.format(self.link_names[c[3]], obstacle_index)
                     return False
             for tool_index, (body, _, _, _) in enumerate(self.tools):
-                check_deadline('collision.is_valid')
                 if (self._bounds_overlap(tool_bounds[tool_index], obstacle_bounds, clearance)
                         and p.getClosestPoints(body, obstacle, clearance)):
                     self.last_failure = 'tool collision: tool[{}] / collision_meshes[{}]'.format(tool_index, obstacle_index)
                     return False
         for tool_index, (body, _, _, touch) in enumerate(self.tools):
-            check_deadline('collision.is_valid')
             bounds = p.getAABB(body)
             for link in self.collision_links:
-                check_deadline('collision.is_valid')
                 if link in touch or not self._bounds_overlap(bounds, link_bounds[link], clearance):
                     continue
                 if p.getClosestPoints(body, self.robot, clearance, linkIndexB=link):
@@ -441,7 +418,6 @@ class PybulletServer:
         This is resolution-dependent collision checking, not a continuous proof.
         Base planes must be upright; yaw is interpolated along the shortest arc.
         """
-        check_deadline('collision.edge_is_valid')
         if any(not math.isfinite(v) or v <= 0 for v in (joint_resolution, base_resolution, yaw_resolution)):
             raise ValueError('Positive sampling resolutions required')
         b0, b1 = as_plane(base0), as_plane(base1)
@@ -462,7 +438,6 @@ class PybulletServer:
         steps = max(1, math.ceil(np.max(np.abs(delta))/joint_resolution) if len(delta) else 1,
                     math.ceil(np.linalg.norm(b1.origin-b0.origin)/base_resolution), math.ceil(abs(dy)/yaw_resolution))
         for t in np.linspace(0, 1, steps+1):
-            check_deadline('collision.edge_is_valid')
             yaw = y0+t*dy
             base = Plane((1-t)*b0.origin+t*b1.origin,
                          b0.xaxis if same_rotation else (math.cos(yaw), math.sin(yaw), 0),

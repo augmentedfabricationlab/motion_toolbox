@@ -1,5 +1,4 @@
 """Optional sparse mobile proposals with full-resolution feasibility checks."""
-from .runtime import check_deadline
 import math
 from time import perf_counter
 import numpy as np
@@ -14,12 +13,10 @@ def mobile_base_seeds(targets, *, distance=1.0, height=0.0):
     seeds are not reachability/collision guarantees; the robot planner validates
     the candidate path using the actual arm mounting and tool.
     """
-    check_deadline('mobile_planning.mobile_base_seeds')
     if not math.isfinite(distance) or distance <= 0 or not math.isfinite(height):
         raise ValueError('Seed distance must be positive and height finite')
     seeds = []
     for target in targets:
-        check_deadline('mobile_planning.mobile_base_seeds')
         target = as_plane(target)
         direction = target.zaxis[:2]
         if np.linalg.norm(direction) < 1e-8:
@@ -40,7 +37,6 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     Supplied seeds contain one plane or one per target. current_pose requires
     an explicit start_base, so the approach is never silently assumed.
     """
-    check_deadline('mobile_planning.plan_mobile_robot_path')
     from .planning import rotation_offsets
     settings = dict(settings)
     allowed = {'connect_sections', 'section_size', 'section_proposals', 'section_beam_width', 'strategy', 'lateral_distance', 'wall_distances', 'smoothing_windows',
@@ -83,7 +79,6 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
     options['offsets'] = rotation_offsets('n_steps', steps=rotation_steps)
     regions, body_cache = {}, {}
     def region(target):
-        check_deadline('mobile_planning.region')
         from .stationary_region import StationaryRegion
         # Input planes remain alive/immutable throughout this invocation.
         # Avoid reconstructing a 4x4 matrix on every base-candidate lookup.
@@ -94,7 +89,6 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
         return regions[key]
     if use_region:
         def valid(target, base):
-            check_deadline('mobile_planning.valid')
             if not region(target).metrics(base)['geometry_valid']:
                 return False
             key = base.matrix.tobytes()
@@ -105,7 +99,6 @@ def plan_mobile_robot_path(targets, seeds, settings, *, rotation_steps=1, base_c
         if sparse:
             options.setdefault('max_feasible_bases', 4)
     def layer(i, target):
-        check_deadline('mobile_planning.layer')
         if use_region:
             generated, _, _ = region(target).candidates(spacing=spacing, yaw_steps=yaw_steps)
             # Supplied seeds are optional proposals, subject to the same rules.
@@ -140,7 +133,6 @@ def significant_targets(targets, *, max_gap=20, max_distance=0.2, angle=0.15):
     Lengths are metres and angles radians. This linear-time selector is a
     heuristic, not a reachability test or a geometric error bound.
     """
-    check_deadline('mobile_planning.significant_targets')
     if int(max_gap) != max_gap or max_gap < 1:
         raise ValueError('max_gap must be a positive integer')
     if any(not math.isfinite(v) or v <= 0 for v in (max_distance, angle)):
@@ -151,7 +143,6 @@ def significant_targets(targets, *, max_gap=20, max_distance=0.2, angle=0.15):
     kept, distance, turn = [0], 0.0, 0.0
     previous_direction = None
     for i in range(1, len(frames)):
-        check_deadline('mobile_planning.significant_targets')
         delta = frames[i].origin - frames[i-1].origin
         length = float(np.linalg.norm(delta))
         if length > 1e-12:
@@ -185,10 +176,8 @@ def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
     height changes from an anchor. Lengths are metres. Optional gap/distance
     caps add points after simplification; they are disabled by default.
     """
-    check_deadline('mobile_planning.xy_feature_targets')
     for name, value in (('xy_tolerance', xy_tolerance), ('normal_angle', normal_angle),
                         ('z_tolerance', z_tolerance), ('max_distance', max_distance)):
-        check_deadline('mobile_planning.xy_feature_targets')
         if value is None and name != 'xy_tolerance':
             continue
         if value is None or not math.isfinite(value) or value <= 0:
@@ -202,7 +191,6 @@ def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
     keep = {0, len(frames)-1}
     anchor = 0
     for i in range(1, len(frames)):
-        check_deadline('mobile_planning.xy_feature_targets')
         changed = z_tolerance is not None and abs(frames[i].origin[2]-frames[anchor].origin[2]) >= z_tolerance
         if normal_angle is not None:
             a, b = frames[anchor].zaxis[:2], frames[i].zaxis[:2]
@@ -215,7 +203,6 @@ def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
     if max_gap is not None or max_distance is not None:
         anchor = 0
         for i in range(1, len(frames)):
-            check_deadline('mobile_planning.xy_feature_targets')
             if (i in keep or (max_gap is not None and i-anchor >= max_gap) or
                     (max_distance is not None and np.linalg.norm(points[i]-points[anchor]) >= max_distance)):
                 keep.add(i)
@@ -223,7 +210,6 @@ def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
     ordered = sorted(keep)
     stack = list(zip(ordered, ordered[1:]))
     while stack:
-        check_deadline('mobile_planning.xy_feature_targets')
         a, b = stack.pop()
         if b-a < 2:
             continue
@@ -242,11 +228,9 @@ def xy_feature_targets(targets, *, xy_tolerance=.05, normal_angle=.35,
 
 def xy_feature_progress(targets, indices):
     """Monotone progress along simplified XY segments, ignoring ripple length."""
-    check_deadline('mobile_planning.xy_feature_progress')
     points = np.array([as_plane(t).origin[:2] for t in targets])
     coordinates = np.zeros(len(points))
     for a,b in zip(indices, indices[1:]):
-        check_deadline('mobile_planning.xy_feature_progress')
         chord = points[b]-points[a]
         length = float(np.linalg.norm(chord))
         fraction = (np.maximum.accumulate(np.clip((points[a:b+1]-points[a]) @ chord/length**2,0,1))
@@ -257,17 +241,13 @@ def xy_feature_progress(targets, indices):
 
 def interpolate_bases(indices, bases, coordinates):
     """Linear translation and shortest-arc upright yaw, at every coordinate."""
-    check_deadline('mobile_planning.interpolate_bases')
     result = [None]*len(coordinates)
     for index, base in zip(indices, bases):
-        check_deadline('mobile_planning.interpolate_bases')
         result[index] = base
     for a, b, first, last in zip(indices, indices[1:], bases, bases[1:]):
-        check_deadline('mobile_planning.interpolate_bases')
         yaw = math.atan2(first.xaxis[1], first.xaxis[0])
         dyaw = (math.atan2(last.xaxis[1], last.xaxis[0])-yaw+math.pi) % (2*math.pi)-math.pi
         for i in range(a+1, b):
-            check_deadline('mobile_planning.interpolate_bases')
             span = coordinates[b]-coordinates[a]
             fraction = (coordinates[i]-coordinates[a])/span if span > 0 else (i-a)/(b-a)
             heading = yaw + fraction*dyaw
@@ -288,7 +268,6 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
     This mode is approximate. Use plan_mobile_base for the discrete optimum.
     All original limits and collision callbacks apply to full-resolution output.
     """
-    check_deadline('mobile_planning.plan_mobile_sparse')
     started = perf_counter()
     targets = [as_plane(t) for t in targets]
     # Same target/base candidate states are independent of coarse edge limits.
@@ -308,7 +287,6 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
         raise ValueError('Provide one candidate layer per target')
     cache = {}
     def layer(i):
-        check_deadline('mobile_planning.layer')
         if i not in cache:
             cache[i] = list(base_candidates_per_target(i, targets[i]) if callable(base_candidates_per_target)
                             else base_candidates_per_target[i])
@@ -338,10 +316,8 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
         # Lazy layers avoid generating later regions after an impossible keyframe.
         class KeyframeLayers:
             def __len__(self):
-                check_deadline('mobile_planning.__len__')
                 return len(indices)
             def __iter__(self):
-                check_deadline('mobile_planning.__iter__')
                 return (layer(i) for i in indices)
         proposal = plan_mobile_base([targets[i] for i in indices], KeyframeLayers(), **coarse_options)
         if any(n == 0 for n in proposal.candidate_counts):
@@ -349,7 +325,6 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
             details = [dict(checked=False) for _ in targets]
             joints = [[] for _ in targets]
             for j,i in enumerate(indices):
-                check_deadline('mobile_planning.plan_mobile_sparse')
                 counts[i] = proposal.candidate_counts[j]
                 details[i] = proposal.target_diagnostics[j]
                 joints[i] = proposal.ik_solutions_per_node[j]
@@ -369,17 +344,14 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
         fallback = True
     class DenseLayers:
         def __len__(self):
-            check_deadline('mobile_planning.__len__')
             return len(targets)
         def __iter__(self):
-            check_deadline('mobile_planning.__iter__')
             return (layer(i) for i in range(len(targets)))
     # Only bounded candidate search needs continuity-aware pruning. Explicit
     # uncapped search retains its exact supplied-domain semantics.
     connected = options.get('max_feasible_bases') is not None
     limits, repairs = {}, []
     for attempt in range(3):
-        check_deadline('mobile_planning.plan_mobile_sparse')
         result = plan_mobile_base(targets, DenseLayers(), **dict(options,
             _connected_candidates=connected, _base_limits=limits, _stop_on_unreachable=True))
         blocked = next((d for d in result.diagnostics if d.get('reason') == 'transition_blocked'), None)
@@ -388,7 +360,6 @@ def plan_mobile_sparse(targets, base_candidates_per_target, *, max_gap=None,
         boundary = blocked['to_target']
         cap = max(options['max_feasible_bases'], 16 if attempt == 0 else 64)
         for j in range(max(0, boundary-2), boundary+1):
-            check_deadline('mobile_planning.plan_mobile_sparse')
             limits[j] = cap
         repairs.append(dict(blocked_transition=blocked, expanded_targets=sorted(limits), base_limit=cap))
     if repairs:

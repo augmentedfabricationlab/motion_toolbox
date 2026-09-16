@@ -1,5 +1,4 @@
 """Shared candidate evaluation for stationary, prescribed-base and mobile planning."""
-from .runtime import check_deadline
 from motion_toolbox.recording import recorded, current_run, metric, event
 import json
 import math
@@ -12,7 +11,6 @@ from .kinematics.solver import URKinematics
 
 
 def rotation_offsets(mode=False, step=5, steps=35, cw=0, ccw=0):
-    check_deadline('planning.rotation_offsets')
     mode = str(mode).lower()
     if mode in ('false', 'none', 'off', '0'):
         return [0.0]
@@ -28,14 +26,12 @@ def rotation_offsets(mode=False, step=5, steps=35, cw=0, ccw=0):
 
 
 def normalize_joint_ranges(ranges, dimension=None):
-    check_deadline('planning.normalize_joint_ranges')
     if ranges is None:
         return None
     if dimension is not None and len(ranges) > dimension:
         raise ValueError('More joint ranges than joints')
     result = []
     for limits in ranges:
-        check_deadline('planning.normalize_joint_ranges')
         if limits is None:
             result.append(None)
             continue
@@ -51,13 +47,11 @@ def normalize_joint_ranges(ranges, dimension=None):
 
 
 def _in_ranges(q, ranges):
-    check_deadline('planning._in_ranges')
     if ranges is None:
         return True
     if len(ranges) > len(q):
         raise ValueError('More joint ranges than joints')
     for value, limits in zip(q, ranges):
-        check_deadline('planning._in_ranges')
         if limits is None:
             continue
         lo, hi = limits
@@ -71,7 +65,6 @@ def _in_ranges(q, ranges):
 @recorded
 def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=None, *, stats=None):
     """Return unique feasible joint vectors and diagnostic counts."""
-    check_deadline('planning.candidates')
     if stats is None and current_run() is not None:
         stats = {}
     started = perf_counter()
@@ -79,9 +72,7 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
     joint_ranges = normalize_joint_ranges(joint_ranges)
     all_q, seen = [], set()
     for angle in offsets:
-        check_deadline('planning.candidates')
         for q in ik_solver(target.rotated_z(angle), base):
-            check_deadline('planning.candidates')
             q = np.asarray(q, dtype=float)
             if q.ndim != 1 or q.size == 0 or not np.isfinite(q).all():
                 raise ValueError('IK returned an invalid configuration')
@@ -100,10 +91,8 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
     for q in all_q:
         # Analytic IK returns principal angles. Enumerate valid revolutions for
         # explicitly bounded joints so limits such as [-2*pi, 0] remain usable.
-        check_deadline('planning.candidates')
         alternatives = []
         for j, value in enumerate(q):
-            check_deadline('planning.candidates')
             bounds = joint_ranges[j] if joint_ranges is not None and j < len(joint_ranges) else None
             if j in getattr(ik_solver, 'revolute_joints', ()) and bounds is not None and bounds[0] is not None and bounds[1] is not None:
                 lo, hi = bounds
@@ -128,17 +117,13 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
         cache_key = getattr(checker, 'configuration_cache_key', None)
         cache = {}
         def batches():
-            check_deadline('planning.batches')
             for rows, key in groups:
-                check_deadline('planning.batches')
                 if key is not None:
                     yield rows, key
                 else:
                     for q in rows:
-                        check_deadline('planning.batches')
                         yield [q], cache_key(q) if cache_key is not None else None
         for rows, key in batches():
-            check_deadline('planning.candidates')
             q = rows[0]
             collision_cache_hits += len(rows)-1
             if key is not None and key in cache:
@@ -165,10 +150,8 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                      joint_expansion_seconds=expansion_finished-ik_finished,
                      collision_seconds=perf_counter()-expansion_finished)
         for name in ('raw_ik', 'within_joint_limits', 'collision_free', 'collision_checks', 'collision_rejections', 'collision_cache_hits'):
-            check_deadline('planning.candidates')
             metric(name, stats[name])
         for name in ('ik_seconds', 'joint_expansion_seconds', 'collision_seconds'):
-            check_deadline('planning.candidates')
             metric(name, stats[name], 's')
         event('candidate.filters', **stats)
     return valid, len(all_q), len(valid)
@@ -188,7 +171,6 @@ def calculate_partial_trajectory(current_pose, list_of_targets, number_of_nodes_
     returns True for a valid pose; use a persistent PybulletServer.is_valid.
     path_builder_iterations is accepted for ROS migration; solve is always exact.
     """
-    check_deadline('planning.calculate_partial_trajectory')
     joint_ranges = normalize_joint_ranges(joint_ranges, len(current_pose) if current_pose is not None else None)
     total = len(list_of_targets)
     n = total if number_of_nodes_to_calculate is None else number_of_nodes_to_calculate
@@ -211,7 +193,6 @@ def calculate_partial_trajectory(current_pose, list_of_targets, number_of_nodes_
     layers, before, after, diagnostics = [], [], [], []
     candidate_started = perf_counter()
     for target, base in zip(targets, bases):
-        check_deadline('planning.calculate_partial_trajectory')
         stats = {}
         q, a, b = candidates(target, base, solver, offsets, collision, joint_ranges, stats=stats)
         diagnostics.append(stats)
@@ -231,7 +212,6 @@ def calculate_partial_trajectory(current_pose, list_of_targets, number_of_nodes_
     if not dont_build_graph and not unreachable:
         graph_started = perf_counter()
         def check_edge(i, a, b):
-            check_deadline('planning.check_edge')
             if edge_valid is not None and not edge_valid(i, a, b):
                 return False
             if transition_check is None:
