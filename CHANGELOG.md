@@ -10,6 +10,17 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.22 - 2026-09-16
+
+- Add a geometry-only diagonal-offset experiment: one upright ground frame per
+  saved smooth_xy point, global +Z up, local X aligned with projected target Z,
+  then offsets of -0.9 m X and +1.2 m Y. Reject undefined horizontal normals.
+- Add a two-recording overlay graphic and per-target frame exports with capture
+  and input-line fingerprints. No collision/reach claims or stationary changes.
+- Validation: 47 smoothing/component tests passed; all 3,168 exported frames
+  checked for global +Z, right-handed orthonormal axes, ground-plane origins
+  and 1.5 m diagonal displacement.
+
 ## 0.1.21 - 2026-09-16
 
 - Add geometry-only whole-path XY smoothing with a per-target deviation bound,
