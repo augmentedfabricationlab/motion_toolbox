@@ -72,11 +72,11 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 5 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.16':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.17':
         importlib.reload(motion_toolbox)
 
     names = (
-        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
+        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
         'motion_toolbox.mobile_transitions', 'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.mobile_sections', 'motion_toolbox.smooth_mobile', 'motion_toolbox.mobile_planning',

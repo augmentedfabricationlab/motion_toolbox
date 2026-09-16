@@ -227,6 +227,17 @@ def kinematics_from_robot(robot, *, parameters=None, arm_in_base=None, group=Non
     tool = _active_tool(robot, group)
     solver = URKinematics(parameters=parameters if parameters is not None else UR20,
                         tool=tool.frame if tool is not None else None, arm_in_base=arm_in_base)
+    names = (resolve_arm_joint_names(robot, arm_joint_names, group=group)
+             if getattr(robot.model,'root',None) is not None else list(DEFAULT_ARM_JOINT_NAMES))
+    suffix = 'shoulder_pan_joint'
+    prefix = names[0][:-len(suffix)] if names[0].endswith(suffix) else None
+    if prefix is not None and all(robot.model.get_link_by_name(prefix+n) is not None for n in ('base','tool0')):
+        from .kinematics.calibrated import CalibratedURKinematics
+        _, fixed, _ = _mount_from_urdf(robot, group, fixed, names)
+        solver = CalibratedURKinematics(robot.model.to_urdf_string(), names,
+            controller_link=prefix+'base', end_link=prefix+'tool0', fixed_joint_values=fixed,
+            parameters=parameters if parameters is not None else UR20,
+            tool=tool.frame if tool is not None else None, arm_in_base=arm_in_base)
     solver.fixed_joint_values = fixed
     solver.mounting_source = source
     return solver

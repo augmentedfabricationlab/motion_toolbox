@@ -32,7 +32,7 @@ def load_case(folder):
     return data
 
 
-def setup(folder, replay):
+def setup(folder, replay, calibrated=False):
     from motion_toolbox.collision import PybulletServer
     from motion_toolbox.kinematics.solver import URKinematics
     settings = replay['collision_options']
@@ -51,6 +51,13 @@ def setup(folder, replay):
             world.add_ground(settings['ground_z'], support_links=settings.get('support_links', ()))
         solver = URKinematics(replay['ur_parameters'], tool=replay['tcp_in_flange'],
                               arm_in_base=replay['arm_in_base'])
+        if calibrated:
+            from motion_toolbox.kinematics.calibrated import CalibratedURKinematics
+            prefix = replay['arm_joint_names'][0][:-len('shoulder_pan_joint')]
+            solver = CalibratedURKinematics((Path(folder)/'robot/robot.urdf').read_text(),
+                replay['arm_joint_names'], controller_link=prefix+'base', end_link=prefix+'tool0',
+                fixed_joint_values=replay['fixed_joint_values'], parameters=replay['ur_parameters'],
+                tool=replay['tcp_in_flange'], arm_in_base=replay['arm_in_base'])
         return solver, world
     except BaseException:
         world.close()
@@ -110,7 +117,7 @@ def worker(args):
     cpu_started = time.process_time()
     data = load_case(args.case)
     r = data['replay']
-    solver, world = setup(args.case, r)
+    solver, world = setup(args.case, r, calibrated=not args.captured_source)
     settings = dict(r['mobile_options'], **json.loads(args.settings))
     targets = [as_plane(t) for t in r['targets']]
     seeds = [as_plane(b) for b in r['seeds']]

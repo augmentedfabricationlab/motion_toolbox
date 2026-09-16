@@ -170,7 +170,7 @@ try:
     # Reload the planning dependency chain together: refreshing only the adapter
     # leaves old imported functions in base_planning/planning alive in Rhino.
     pipeline_names = (
-        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver',
+        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.base_planning', 'motion_toolbox.stationary_region',
         'motion_toolbox.robot_planning',
@@ -180,19 +180,20 @@ try:
         path = Path(module.__file__).resolve()
         stat = path.stat()
         return str(path), stat.st_mtime_ns, stat.st_size
-    base_module = pipeline[4]
+    base_module = pipeline[pipeline_names.index('motion_toolbox.base_planning')]
+    graph_module = pipeline[pipeline_names.index('motion_toolbox.graph')]
     planner_arguments = {'objective', 'placement_region', 'build_path', 'base_collision', 'max_validation_attempts'}
     stale = any(getattr(module, '_stationary_loaded_stamp', None) != source_stamp(module)
                 for module in pipeline)
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
-    stale = stale or 'path_count' not in getattr(pipeline[2].GraphResult, '__dataclass_fields__', {})
+    stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
     if stale:
         importlib.invalidate_caches()
         for module in pipeline:
             importlib.reload(module)
             module._stationary_loaded_stamp = source_stamp(module)
     if (not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
-        or 'path_count' not in getattr(pipeline[2].GraphResult, '__dataclass_fields__', {})):
+        or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})):
         raise RuntimeError('Outdated planner at {}. Set toolbox_src to the updated motion_toolbox/src directory and restart Rhino.'.format(
             base_module.__file__))
     from motion_toolbox.geometry import as_plane, to_rhino

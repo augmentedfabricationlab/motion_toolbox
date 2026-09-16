@@ -10,6 +10,20 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.17 - 2026-09-16
+
+- Refine analytic UR branches against recognized URDF controller/tool0 chains,
+  including factory joint origins/rotations, fixed lift, mounting and TCP.
+  Accept refined states only after calibrated FK converges; retain subsequent
+  joint-limit and collision filtering. No new dependency is required.
+- Reload calibrated kinematics with the Grasshopper dependency chain. Replace
+  stationary entrypoint's positional module references with named lookups.
+- Captured robot FK audit at targets 0, 57 and 1000 improves from millimetres
+  to under 0.0003 mm (PyBullet FK precision); this is sampled calibration
+  validation, not yet a claim of a complete fabrication path.
+- Validation: 232 tests passed, including calibrated Jacobian/FK, independent
+  mounting/TCP transforms and the actual Grasshopper entrypoints.
+
 ## 0.1.16 - 2026-09-16
 
 - Screen common base step bounds once for fixed smooth proposals; retain exact
