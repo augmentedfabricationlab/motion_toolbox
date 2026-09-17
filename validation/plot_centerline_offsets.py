@@ -69,6 +69,9 @@ def main():
         ax.plot(*passes.T,c='#218358',lw=1.2,label='Original smooth passes')
         ax.plot(*curve.T,c='#7751a0',lw=1.5,ls='--',label='Centerline: heading reference')
         ax.plot(*base.T,c='#2568b1',lw=2,label='Offset base path')
+        for key,col,label in [('x_axes','#d0644c','Base X'),('y_axes','#9770b0','Base Y'),('z_axes','#333333','Base Z (global up)')]:
+            vectors=f[key][indices]*.22
+            ax.quiver(*base[indices].T,*vectors.T,color=col,arrow_length_ratio=.22,label=label)
         ax.scatter(*base[0],c='#2568b1',s=40,marker='o',depthshade=False)
         ax.scatter(*base[-1],c='#2568b1',s=40,marker='s',depthshade=False)
         bounds=np.vstack((tcp,curve,base));span=np.ptp(bounds,axis=0)
@@ -82,7 +85,7 @@ def main():
         fig.savefig(args.output/f'recording_{n}_centerline_offset.pdf')
         plt.close(fig)
         frames=[dict(origin=o.tolist(),x_axis=x.tolist(),y_axis=y.tolist(),z_axis=z.tolist()) for o,x,y,z in zip(base,f['x_axes'],f['y_axes'],f['z_axes'])]
-        (args.output/f'recording_{n}_frames.json').write_text(json.dumps(dict(units='metres',case_sha256=digest,base_frames=frames)))
+        (args.output/f'recording_{n}_frames.json').write_text(json.dumps(dict(units='metres',case_sha256=digest,target_indices=list(range(len(base))),base_frames=frames,fabrication_validated=False)))
         summaries.append(dict(recording=n,case_sha256=digest,centerline_sha256=hashlib.sha256(source.read_bytes()).hexdigest(),pass_source_sha256=hashlib.sha256(pass_source.read_bytes()).hexdigest(),count=len(base),x_offset=-.9,y_offset=1.2,mean_target_normal_alignment=f['mean_target_normal_alignment']))
     (args.output/'summary.json').write_text(json.dumps(dict(toolbox_version=__version__,source_sha256=hashlib.sha256(Path(implementation.__file__).read_bytes()).hexdigest(),recordings=summaries),indent=2))
     print(json.dumps(summaries))

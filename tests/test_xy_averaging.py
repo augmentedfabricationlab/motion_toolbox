@@ -75,7 +75,7 @@ def test_actual_component_only_outputs_xy_curves_without_robot(monkeypatch, devi
     monkeypatch.setitem(sys.modules, 'Rhino.Geometry', geometry)
     path = Path(__file__).resolve().parents[1]/'examples/grasshopper_mobile_base.py'
     targets = [Plane((i,i%2,100+i), (1,0,0),(0,1,0)) for i in range(30)]
-    out = runpy.run_path(str(path),init_globals=dict(target_planes=targets,window_sizes=[5,10],max_xy_deviation=deviation))
+    out = runpy.run_path(str(path),init_globals=dict(target_planes=targets,window_sizes=[5,10],max_xy_deviation=deviation,create_base_planes=False))
     assert out['status'].startswith('XY average only' if deviation is None else 'Bounded XY smoothing'), out['status']
     if deviation is not None:
         assert out['result']['smoothing']['measured_max_deviation'] <= deviation+1e-12
@@ -83,3 +83,26 @@ def test_actual_component_only_outputs_xy_curves_without_robot(monkeypatch, devi
     assert all(p[2] == 0. for p in out['averaged_line'])
     assert not out['base_planes'] and not out['configurations'] and out['joint_plan'] is None
     assert len(out['comparison_lines']) == 2
+
+
+def test_component_maps_all_targets_to_upright_base_planes(monkeypatch):
+    rhino, geometry = ModuleType('Rhino'), ModuleType('Rhino.Geometry')
+    geometry.Point3d = lambda *v: v
+    geometry.Vector3d = lambda *v: v
+    geometry.Plane = lambda o,x,y: Plane(o,x,y)
+    geometry.PolylineCurve = lambda p: p
+    rhino.Geometry = geometry
+    monkeypatch.setitem(sys.modules, 'Rhino', rhino)
+    monkeypatch.setitem(sys.modules, 'Rhino.Geometry', geometry)
+    targets = [Plane((x, 0., z), (0,0,1),(1,0,0))
+               for x,z in zip(np.linspace(0,3000,80),np.linspace(200,1800,80))]
+    path = Path(__file__).resolve().parents[1]/'examples/grasshopper_mobile_base.py'
+    out = runpy.run_path(str(path), init_globals=dict(target_planes=targets,
+        max_xy_deviation=250,units_to_metres=.001))
+    assert out['status'].startswith('Created 80'), out['status']
+    assert out['target_indices'] == list(range(80))
+    assert len(out['base_planes']) == 80
+    for plane, point in zip(out['base_planes'],out['result']['smoothing']['curve']):
+        np.testing.assert_allclose(plane.zaxis,[0,0,1],atol=1e-12)
+        np.testing.assert_allclose(plane.origin[:2],point+[-1200,-900],atol=1e-8)
+    assert not out['result']['fabrication_validated']

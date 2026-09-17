@@ -1,12 +1,15 @@
-﻿"""Rhino 8: XY averaging only; historical filepath retained.
+﻿"""Rhino 8: smooth passes and per-TCP geometric base frames.
 Required: target_planes (List, Plane).
 Optional: window_sizes (List, int; defaults 10..200), toolbox_src (Item, str),
           selection_metric (Item, str; length_ratio or length, default length_ratio).
           max_xy_deviation (Item, positive number in model units; enables bounded smoothing).
-Outputs: averaged_line, comparison_lines, window_sizes_used, line_lengths,
+          create_base_planes (Item, bool; defaults true when max_xy_deviation supplied).
+          units_to_metres (Item, positive float; otherwise read from Rhino document).
+Outputs: base_planes, base_path, centerline, target_indices, averaged_line, comparison_lines, window_sizes_used, line_lengths,
          best_window, selected_length, selection_scores, shortest_window,
          shortest_length, projected_points, result, status.
-Input model units are retained. No robot or base/arm planning is performed.
+Input model units are retained; offsets are 0.9 m normal and 1.2 m tangent.
+Geometry only: no IK, collision or speed validation.
 """
 import sys
 import importlib
@@ -20,8 +23,9 @@ averaged_line, result = None, None
 comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], [], []
 best_window, shortest_length = None, None
 selected_length, shortest_window, selection_scores = None, None, []
+base_path, centerline, target_indices = None, None, []
 status = ''
-version = '0.1.25'
+version = '0.1.26'
 try:
     source = globals().get('toolbox_src')
     if source is None:
@@ -61,7 +65,42 @@ try:
         selected_length = smoothing_result['length']
         status = 'Bounded XY smoothing: deviation {:.6g}; length {:.6g}; converged {}. Geometry only.'.format(
             smoothing_result['measured_max_deviation'], selected_length, smoothing_result['converged'])
+    if globals().get('create_base_planes', deviation is not None):
+        if deviation is None:
+            raise ValueError('Supply max_xy_deviation in model units to create base planes')
+        import math
+        import motion_toolbox.xy_centerline as centerlining
+        import motion_toolbox.xy_offset as offsets
+        importlib.reload(centerlining)
+        importlib.reload(offsets)
+        scale = globals().get('units_to_metres')
+        if scale is None:
+            import Rhino
+            doc = Rhino.RhinoDoc.ActiveDoc
+            if doc is None:
+                raise ValueError('Supply units_to_metres when no Rhino document is active')
+            scale = Rhino.RhinoMath.UnitScale(doc.ModelUnitSystem, Rhino.UnitSystem.Meters)
+        scale = float(scale)
+        if not math.isfinite(scale) or scale <= 0:
+            raise ValueError('units_to_metres must be finite and positive')
+        passes = smoothing_result['curve']
+        guide = centerlining.centerline_xy(passes)
+        numeric_targets = [as_plane(p) for p in targets]
+        frames = offsets.centerline_offset_frames(
+            guide['curve'], guide['mapped_points'],
+            [p.xaxis for p in numeric_targets], [p.yaxis for p in numeric_targets],
+            x_offset=-.9/scale, y_offset=1.2/scale, pass_points=passes)
+        base_planes = [rg.Plane(rg.Point3d(*o), rg.Vector3d(*x), rg.Vector3d(*y))
+                       for o,x,y in zip(frames['origins'],frames['x_axes'],frames['y_axes'])]
+        base_path = polyline(frames['origins'][:, :2])
+        centerline = polyline(guide['curve'])
+        target_indices = list(range(len(targets)))
+        result.update(base_frames=frames, centerline=guide, target_indices=target_indices,
+                      units_to_metres=scale, fabrication_validated=False)
+        status = 'Created {} per-TCP base planes: X toward wall, Y centerline tangent, Z global up. Smoothing converged: {}. Geometry only.'.format(
+            len(base_planes), smoothing_result['converged'])
 except Exception as error:
+    base_planes, base_path, centerline, target_indices = [], None, None, []
     averaged_line, result = None, None
     comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], [], []
     best_window, shortest_length = None, None

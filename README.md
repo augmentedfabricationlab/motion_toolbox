@@ -241,6 +241,16 @@ controls headings only; offsets originate at each original smooth pass point.
 Omitting `pass_points` instead offsets the centerline projections. Output frames
 remain geometry proposals, with no robot reach/collision/motion validation.
 
+When `max_xy_deviation` is connected, `grasshopper_mobile_base.py` now also
+outputs `base_planes`, `base_path`, `centerline`, and `target_indices`. Each
+base plane corresponds to the original TCP at the same list index. Set
+`create_base_planes=false` for the earlier curve-only experiment. Physical
+0.9 m / 1.2 m offsets use the active Rhino document's units, or an explicit
+`units_to_metres` (for example 0.001 for millimetres). `max_xy_deviation` remains
+in model units (250 for the 0.25 m experiment in a millimetre document).
+Recompute the existing filepath-loaded component; no code repasting is needed.
+These are geometric frames; `result['fabrication_validated']` is false.
+
 For an offline comparison graphic using an exported capture:
 
 ```powershell

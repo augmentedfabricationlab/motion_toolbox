@@ -10,6 +10,18 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.26 - 2026-09-17
+
+- Expose one Rhino base plane per original TCP in the existing component when
+  bounded smoothing is enabled. X faces the wall, Y follows the centerline,
+  Z is global up; offsets originate on each smooth pass. Add base_path,
+  centerline and target_indices outputs. Preserve original target order.
+- Convert physical offsets using Rhino document units or units_to_metres.
+  create_base_planes=false retains the previous curve-only experiment.
+  Outputs remain unvalidated geometric proposals, with no arm planning.
+- Validation: 43 tests passed, including component mapping and millimetre offsets.
+  Export explicit target indices and show sampled 3D base-plane axes.
+
 ## 0.1.25 - 2026-09-17
 
 - Correct the centerline-guided offset experiment to displace every original
