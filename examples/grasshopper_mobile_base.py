@@ -3,7 +3,8 @@
 Load this file by path and recompute. Required: robot (Item), target_planes (List).
 Robot, active tool, calibration and fixed joints use metres/radians.
 Optional inputs:
-  model_units_to_metres / units_to_metres: otherwise inferred from Rhino document.
+  model_units_to_metres / units_to_metres: default 1 (metres), matching captures.
+    Set 0.001 explicitly for millimetre-valued input geometry.
   max_xy_deviation: model units, default 0.25 m converted to model units.
   normal_offset, tangent_offset: model units, defaults 0.9 m and 1.2 m.
   current_pose: optional six arm radians or named Configuration at first base.
@@ -30,6 +31,7 @@ The 45-minute limit is component-only and cooperative between solver calls.
 It cannot forcibly interrupt a native call holding the GIL. No robot is commanded.
 """
 import importlib
+import json
 import math
 import sys
 import time
@@ -48,7 +50,7 @@ valid=False
 selected_target_planes,selected_tcp_rotations=[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.28'
+version='0.1.29'
 started=time.monotonic()
 
 def _check_deadline():
@@ -57,19 +59,23 @@ def _check_deadline():
 
 try:
     source=_input('toolbox_src',str(Path(__file__).resolve().parents[1]/'src'))
-    if str(source) not in sys.path:sys.path.insert(0,str(source))
-    for module_name in ('xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_base_workflow'):
+    if str(source) in sys.path:sys.path.remove(str(source))
+    sys.path.insert(0,str(source))
+    importlib.invalidate_caches()
+    import motion_toolbox
+    importlib.reload(motion_toolbox)
+    # Rhino keeps modules alive between recomputes. Refresh dependencies before
+    # consumers, including their from-import bindings to older solver functions.
+    for module_name in ('kinematics.ur','kinematics.solver','kinematics.calibrated',
+                        'graph','planning','robot_adapter','collision','robot_planning',
+                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base
     from motion_toolbox.robot_planning import json_input
     from motion_toolbox.geometry import to_rhino
     import Rhino
     import Rhino.Geometry as rg
-    scale=_input('model_units_to_metres',_input('units_to_metres'))
-    if scale is None:
-        doc=Rhino.RhinoDoc.ActiveDoc
-        if doc is None:raise ValueError('Supply model_units_to_metres without an active Rhino document')
-        scale=Rhino.RhinoMath.UnitScale(doc.ModelUnitSystem,Rhino.UnitSystem.Meters)
+    scale=_input('model_units_to_metres',_input('units_to_metres',1.))
     scale=float(scale)
     if not math.isfinite(scale) or scale<=0:raise ValueError('Positive finite model_units_to_metres required')
     # Do not silently honor stale switches that disable requested validation.
@@ -104,10 +110,14 @@ try:
     path_cost=result['path_length']
     status=result['status']
     unreachable_points=result['unreachable_points']
-    diagnostics=[d for d in result['target_diagnostics'] if d['state']!='feasible_state']
-    diagnostics+=result['transition_failures']
+    # GH panels display raw Python dictionaries as a .NET type name.
+    result['effective_settings'].update(component_version=version,
+        planner_path=str(importlib.import_module('motion_toolbox.mobile_base_workflow').__file__))
+    diagnostics=[json.dumps(result['effective_settings'],sort_keys=True)]
+    diagnostics += [json.dumps(d,sort_keys=True) for d in result['target_diagnostics'] if d['state']!='feasible_state']
+    diagnostics += [json.dumps(d,sort_keys=True) for d in result['transition_failures']]
     if result['disconnected_target'] is not None:
-        diagnostics.append(result['disconnected_detail'])
+        diagnostics.append(json.dumps(result['disconnected_detail'],sort_keys=True))
     if not result['smoothing']['converged']:
         diagnostics.append('Smoothing reached its iteration cap; deviation bound holds but objective convergence is unconfirmed.')
     timings=dict(validation_seconds=result['validation_seconds'],component_seconds=time.monotonic()-started)

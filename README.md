@@ -199,8 +199,9 @@ per-target rejection categories, collision pairs when available, placement
 measurements and disconnected transitions. `target_indices` preserves input
 order; `averaged_line` and `centerline` expose the geometric stages.
 
-Units come from Rhino's active document unless `model_units_to_metres` or
-`units_to_metres` is supplied. Component geometric inputs are model units:
+Input geometry defaults to metres, matching the captured cases, regardless of
+Rhino's document units. Set `model_units_to_metres` or
+`units_to_metres` to 0.001 for millimetre-valued geometry. Component geometric inputs are model units:
 `max_xy_deviation` defaults to 0.25 m, `normal_offset` to 0.9 m,
 `tangent_offset` to 1.2 m and `max_base_step` to 0.25 m after unit conversion.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.

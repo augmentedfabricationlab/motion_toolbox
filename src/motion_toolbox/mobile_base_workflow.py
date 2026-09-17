@@ -266,4 +266,10 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
     output_names=[n for n,j in joints.items() if j.type==2 and n not in names]+names
     proposal['configuration_objects']=[configuration_from_values([dict(fixed,**dict(zip(names,q)))[n] for n in output_names],output_names,[joints[n].type for n in output_names]) for q in validation['configurations']]
     proposal.update(arm_in_base=solver.arm_in_base,fixed_joint_values=fixed,mounting_source=solver.mounting_source)
+    proposal['effective_settings']=dict(units_to_metres=units_to_metres,
+        rotation_steps=validation['rotation_steps'],solver=type(solver).__name__,
+        mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
+        tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),
+        fixed_joint_values=fixed,first_target=targets[0].to_dict(),
+        first_base=proposal['base_planes'][0].to_dict())
     return proposal

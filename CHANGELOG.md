@@ -10,6 +10,20 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.29 - 2026-09-17
+
+- Refresh mobile component IK, adapter, graph and collision dependencies in
+  dependency order on recompute, so Rhino cannot retain older solver bindings.
+- Restore the capture-compatible metres default for input geometry; millimetre
+  inputs require an explicit 0.001 scale instead of document-unit inference.
+- Emit readable diagnostic strings for GH panels, including effective units,
+  rotations, tool/mount calibration, solver, code path and first target/base.
+- Validation: 190 tests pass. Component regression covers stale IK imports and metre inputs in
+  a simulated millimetre document. Offline execution of the component with each
+  full capture's base proposal validates the first three targets and swept joins;
+  these bounded probes do not establish full-trajectory validity or reproduce
+  the user's live target-0 failure.
+
 ## 0.1.28 - 2026-09-17
 
 - Enable 16 equally spaced TCP local-Z rotations by default in mobile validation.

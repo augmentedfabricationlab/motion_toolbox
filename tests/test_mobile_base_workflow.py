@@ -145,6 +145,10 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     geometry.Point3d=lambda *p:p
     geometry.PolylineCurve=lambda p:p
     rhino.Geometry=geometry
+    # Metre-valued GH geometry must not be silently rescaled by document units.
+    rhino.RhinoDoc=type('Doc',(),{'ActiveDoc':type('Active',(),{'ModelUnitSystem':'Millimeters'})()})
+    rhino.UnitSystem=type('Units',(),{'Meters':'Meters'})
+    rhino.RhinoMath=type('Math',(),{'UnitScale':staticmethod(lambda *args:.001)})
     monkeypatch.setitem(sys.modules,'Rhino',rhino)
     monkeypatch.setitem(sys.modules,'Rhino.Geometry',geometry)
     from compas.geometry import Frame
@@ -152,9 +156,22 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     robot._RCF=Frame.worldXY()
     targets=[Plane((x,0,10),(0,0,1),(1,0,0)) for x in [0.,.1,.2]]
     path=Path(__file__).resolve().parents[1]/'examples/grasshopper_mobile_base.py'
+    import motion_toolbox.kinematics.ur as ur
+    import motion_toolbox.kinematics.solver as solver_module
+    stale=lambda *args:[]
+    monkeypatch.setattr(ur,'inverse_kinematics',stale)
+    monkeypatch.setattr(solver_module,'inverse_kinematics',stale)
     out=runpy.run_path(str(path),init_globals=dict(robot=robot,target_planes=targets,
-        model_units_to_metres=1.,arm_joint_names=names,max_xy_deviation=.02))
+        arm_joint_names=names,max_xy_deviation=.02))
     assert len(out['base_planes'])==3,out['status']
     assert out['target_indices']==[0,1,2]
     assert not out['valid'] and not out['configurations']
     assert out['result']['state_counts']['no_ik']==3
+    assert ur.inverse_kinematics is not stale
+    assert solver_module.inverse_kinematics is ur.inverse_kinematics
+    assert all(isinstance(d,str) for d in out['diagnostics'])
+    import json
+    settings=json.loads(out['diagnostics'][0])
+    assert settings['units_to_metres']==1
+    assert settings['rotation_steps']==16
+    assert settings['first_target']['origin'][2]==10
