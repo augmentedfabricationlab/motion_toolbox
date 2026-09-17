@@ -231,12 +231,14 @@ shapes may need a different representation. Defaults: 100 bins, 201 output
 stations, Gaussian bandwidth 8% of longitudinal extent; no extra dependencies.
 
 Use `motion_toolbox.xy_offset.centerline_offset_frames(centerline, mapped_points,
-target_x_axes, target_y_axes)` to construct base frames from this spatial
+target_x_axes, target_y_axes, pass_points=original_smooth_points)` to construct base frames from this spatial
 centerline. Headings interpolate local arc-length derivatives; target normals
 select one consistent wall side, rather than supplying individual headings.
 Default displacement is -0.9 along base X (normal away from the wall) and +1.2
 along base Y (tangent), in input units. Z is always global +Z. Repeated traversals
-use the same spatial orientation without flipping on reversals. Output frames
+use the same spatial orientation without flipping on reversals. The centerline
+controls headings only; offsets originate at each original smooth pass point.
+Omitting `pass_points` instead offsets the centerline projections. Output frames
 remain geometry proposals, with no robot reach/collision/motion validation.
 
 For an offline comparison graphic using an exported capture:

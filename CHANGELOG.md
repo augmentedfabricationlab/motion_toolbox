@@ -10,6 +10,16 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.25 - 2026-09-17
+
+- Correct the centerline-guided offset experiment to displace every original
+  smooth_xy pass point rather than its centerline projection. Use the centerline
+  only to derive consistent headings; retain pass spacing and target order.
+- Export updated top/3D plots and per-target base planes for both captures.
+- Validation: 34 tests passed, including preservation of separated return passes.
+  All 3,168 captured frames checked against offsets from their original pass
+  points and global +Z; both comparison images inspected.
+
 ## 0.1.24 - 2026-09-17
 
 - Derive upright base frames from spatial centerline tangents/normals, using

@@ -3,10 +3,12 @@ import numpy as np
 
 
 def centerline_offset_frames(centerline, mapped_points, target_x_axes, target_y_axes,
-                             x_offset=-.9, y_offset=1.2):
+                             x_offset=-.9, y_offset=1.2, *, pass_points=None):
     """Use the spatial centerline's normal/tangent, independent of travel direction.
 
-    mapped_points are the per-target points from centerline_xy, in target order.
+    mapped_points are the per-target points from centerline_xy, in target order,
+    used only to sample headings. Supply original smooth_xy pass_points as the
+    displacement origins to retain all passes. If omitted, origins use mapped_points.
     Tangents interpolate arc-length derivatives at the nearest centerline segment
     (a smooth heading approximation to the exported polyline). One global sign is selected using the mean alignment with target
     Z projections: base +X faces the workpiece; -X moves away; +Y is tangential.
@@ -49,7 +51,8 @@ def centerline_offset_frames(centerline, mapped_points, target_x_axes, target_y_
     up = np.tile([0., 0., 1.], (len(mapped), 1))
     sideways = np.cross(up, normal)
     # sideways cross up = normal, using the existing upright-frame constructor.
-    frames = offset_frames(mapped, sideways, up, x_offset, y_offset)
+    origins = mapped if pass_points is None else pass_points
+    frames = offset_frames(origins, sideways, up, x_offset, y_offset)
     frames['mean_target_normal_alignment'] = abs(alignment)
     return frames
 

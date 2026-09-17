@@ -2,6 +2,24 @@ import numpy as np
 from motion_toolbox.xy_offset import centerline_offset_frames
 
 
+def test_offset_retains_separate_pass_positions_with_shared_headings():
+    s = np.linspace(0, 3, 30)
+    curve = np.column_stack((s, np.zeros(30)))
+    mapped = np.vstack((curve, curve[::-1]))
+    passes = mapped.copy()
+    passes[:30, 1] = -.2
+    passes[30:, 1] = .3
+    tx = np.tile([0,0,1.], (60,1))
+    ty = np.tile([1.,0,0], (60,1))
+    frames = centerline_offset_frames(curve,mapped,tx,ty,pass_points=passes)
+    np.testing.assert_allclose(frames['line_origins'][:,:2],passes)
+    expected = np.column_stack((passes[:,0]-1.2,passes[:,1]-.9,np.zeros(60)))
+    np.testing.assert_allclose(frames['origins'],expected,atol=1e-12)
+    np.testing.assert_allclose(frames['origins'][30:][::-1]-frames['origins'][:30],
+                               np.tile([0,.5,0],(30,1)),atol=1e-12)
+    np.testing.assert_allclose(frames['x_axes'][30:][::-1],frames['x_axes'][:30])
+
+
 def test_normal_offset_is_upright_and_does_not_flip_on_return_pass():
     curve = np.column_stack((np.linspace(0,3,30), np.zeros(30)))
     mapped = np.vstack((curve,curve[::-1]))
