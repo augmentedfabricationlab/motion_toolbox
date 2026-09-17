@@ -61,12 +61,13 @@ def main():
     parser.add_argument('case',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--timeout',type=float,default=180)
+    parser.add_argument('--rotation-steps',type=int,default=16)
     parser.add_argument('--worker',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     if not args.worker:
         with (args.output/'worker.log').open('w') as log:
             try:
-                run=subprocess.run([sys.executable,__file__,str(args.case),'--output',str(args.output),'--worker'],stdout=log,stderr=subprocess.STDOUT,timeout=args.timeout)
+                run=subprocess.run([sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker'],stdout=log,stderr=subprocess.STDOUT,timeout=args.timeout)
             except subprocess.TimeoutExpired:
                 (args.output/'timeout.json').write_text(json.dumps(dict(timeout_seconds=args.timeout,status='untested_or_incomplete; worker terminated')))
                 raise SystemExit('Worker exceeded bounded runtime; see worker.log')
@@ -84,10 +85,13 @@ def main():
     result=generate_base_path(targets)
     print('Generated proposal',flush=True)
     solver,world=setup(args.case,r,calibrated=True)
+    def progress(message):
+        (args.output/'progress.json').write_text(json.dumps(message,indent=2))
+        print(json.dumps(message),flush=True)
     with world:
         result.update(validate_base_path(targets,result['base_planes'],solver=solver,world=world,
             joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
-            max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
+            progress=progress,rotation_steps=args.rotation_steps,max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
             **{k:v for k,v in r.get('mobile_options',{}).items() if k in
                ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')}))
     result['run']=dict(case_sha256=hashlib.sha256((args.case/'case.json').read_bytes()).hexdigest(),

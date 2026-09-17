@@ -43,6 +43,34 @@ def test_complete_path_requires_every_target_and_swept_join():
     assert len(result['configurations'])==3 and len(checked)==2
 
 
+def test_rotation_search_recovers_path_and_reports_selected_orientations():
+    class RotatedOnly(Solver):
+        def __call__(self,target,base):
+            # Fixture TCP X initially points up. A local-Z quarter turn makes it +X.
+            return super().__call__(target,base) if target.xaxis[0]>.999 else []
+    original=validate(solver=RotatedOnly(),rotation_steps=1)
+    assert original['state_counts']=={'no_ik':3}
+    rotated=validate(solver=RotatedOnly(),rotation_steps=16)
+    assert rotated['fabrication_validated']
+    np.testing.assert_allclose(rotated['selected_tcp_rotations'],np.pi/2)
+    for before,after in zip(fixture()[0],rotated['selected_target_planes']):
+        np.testing.assert_allclose(before.origin,after.origin)
+        np.testing.assert_allclose(before.zaxis,after.zaxis,atol=1e-12)
+
+
+def test_rotation_selection_survives_bounded_joint_revolution_expansion():
+    class RotatedOnly(Solver):
+        revolute_joints=tuple(range(6))
+        def __call__(self,target,base):
+            return [[-.4]*6] if target.xaxis[0]>.999 else []
+    result=validate_base_path(*fixture(),world=World(),solver=RotatedOnly(),
+        joint_ranges=[[-2*np.pi,2*np.pi]]*6,periodic=[False]*6,
+        current_pose=[2*np.pi-.4]*6,max_joint_step=.1,rotation_steps=16)
+    assert result['fabrication_validated']
+    np.testing.assert_allclose(result['configurations'],np.full((3,6),2*np.pi-.4))
+    np.testing.assert_allclose(result['selected_tcp_rotations'],np.pi/2)
+
+
 def test_collision_and_no_ik_are_separate_and_all_targets_tested():
     world=World()
     world.last_failure='tool collision: tool[0] / forearm'
@@ -53,6 +81,34 @@ def test_collision_and_no_ik_are_separate_and_all_targets_tested():
     assert [d['state'] for d in result['target_diagnostics']]==['configuration_collision','no_ik','feasible_state']
     assert not result['fabrication_validated'] and not result['configurations']
     assert result['unchecked_points']==[]
+
+
+def test_equivalent_sweep_cache_preserves_path_and_distinct_windings():
+    class Turns(Solver):
+        revolute_joints=(0,)
+        def __call__(self,target,base):
+            return [[.2+target.origin[0],0,0,0,0,0]]
+    class Counted(World):
+        def __init__(self,cached):
+            self.calls=0
+            if not cached: self.configuration_cache_key=None
+        def configuration_cache_key(self,q):
+            return tuple(np.round([(q[0]+np.pi)%(2*np.pi)-np.pi]+list(q[1:]),10))
+        def edge_is_valid(self,q0,b0,q1,b1,**kw):
+            self.calls+=1
+            # Endpoints differing by a full revolution do not imply the same sweep.
+            return abs(q1[0]-q0[0])<1
+    results=[];worlds=[]
+    for cached in (False,True):
+        world=Counted(cached);worlds.append(world)
+        results.append(validate_base_path(*fixture(),world=world,solver=Turns(),
+            joint_ranges=[[-2*np.pi,2*np.pi]]+[[-3,3]]*5,periodic=[False]*6,
+            max_joint_step=7,rotation_steps=1))
+    assert results[0]['fabrication_validated'] and results[1]['fabrication_validated']
+    np.testing.assert_allclose(results[0]['configurations'],results[1]['configurations'])
+    assert results[0]['edge_rejection_reasons']==results[1]['edge_rejection_reasons']
+    assert results[1]['edge_cache_hits']>0
+    assert worlds[1].calls<worlds[0].calls
 
 
 def test_disconnected_transition_has_exact_target_and_collision_reason():

@@ -178,8 +178,12 @@ by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.
 The component now generates smooth XY passes, extracts a centerline for
 headings, offsets **each pass** 0.9 m normal and 1.2 m tangentially, and validates
-one upright ground base plane per original TCP. It uses the original TCP
-orientations without rotation sampling.
+one upright ground base plane per original TCP. By default it samples 16
+rotations (22.5-degree spacing) around each TCP local Z axis, keeping its position
+and extrusion direction fixed. `rotation_steps=1` restores fixed orientation.
+A connected trajectory selects among all sampled orientations;
+`selected_target_planes` and `selected_tcp_rotations` (radians) report the
+chosen orientations only when the complete path validates.
 
 It checks calibrated arm-origin XY reach (1.75 m), negative target-Z placement,
 base-body collisions, real calibrated IK, joint limits, robot/tool/environment
@@ -202,7 +206,7 @@ Units come from Rhino's active document unless `model_units_to_metres` or
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling
-collision/edge checking or changing TCP orientation are rejected explicitly.
+collision/edge checking are rejected explicitly.
 
 The 45-minute component limit is cooperative between solver calls. It cannot
 force-stop a native call holding the GIL. Shared planning APIs have no timeout.
@@ -212,7 +216,7 @@ motion from another footprint is not included. Stationary planning is unchanged.
 Run captures offline in separate killable processes:
 
 ```powershell
-python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --timeout 180
+python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --timeout 600 --rotation-steps 16
 ```
 
 The harness verifies READY and every manifest hash, restores captured URDF,

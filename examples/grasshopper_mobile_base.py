@@ -12,6 +12,7 @@ Optional inputs:
   collision_meshes: environment meshes, model units.
   collision_options: JSON; allowed pairs, ground, sampling resolutions, etc.
   collision_scene: optional fully configured external scene.
+  rotation_steps: default 16 equally spaced orientations about local TCP Z.
   max_joint_step: default 2.5 rad; max_base_step: default 0.25 m in model units;
   max_yaw_step: default 0.25 rad.
   time_intervals: optional seconds, N-1 transitions (N with current_pose).
@@ -23,7 +24,8 @@ Outputs:
   configurations / joint_plan: ONLY a complete validated connected arm trajectory.
   valid, status, diagnostics, result, timings, unreachable_points, target_indices.
   base_path, averaged_line, centerline: geometry previews.
-Collision and sampled swept checks are mandatory; original TCP orientations fixed.
+Collision and sampled swept checks are mandatory. TCP positions/Z axes stay fixed.
+selected_target_planes and selected_tcp_rotations report the validated selection.
 The 45-minute limit is component-only and cooperative between solver calls.
 It cannot forcibly interrupt a native call holding the GIL. No robot is commanded.
 """
@@ -43,9 +45,10 @@ base_planes,base_result,configurations,target_indices=[],[],[],[]
 base_path,averaged_line,centerline,joint_plan=None,None,None,None
 result,path_cost=None,None
 valid=False
+selected_target_planes,selected_tcp_rotations=[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.27'
+version='0.1.28'
 started=time.monotonic()
 
 def _check_deadline():
@@ -72,8 +75,6 @@ try:
     # Do not silently honor stale switches that disable requested validation.
     if not _input('collision_check',True) or not _input('check_edges',True):
         raise ValueError('Mobile validation requires collision_check and check_edges enabled')
-    if _input('rotation_steps',1)!=1:
-        raise ValueError('Use rotation_steps=1 to preserve the original TCP orientations')
     result=plan_mobile_base(_input('robot'),list(_input('target_planes',[])),units_to_metres=scale,
         max_xy_deviation=float(_input('max_xy_deviation',.25/scale))*scale,
         normal_offset=float(_input('normal_offset',.9/scale))*scale,
@@ -82,7 +83,7 @@ try:
         arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
         joint_ranges=_input('joint_ranges'),group=_input('group'),parameters=_input('ur_parameters'),
         collision_meshes=list(_input('collision_meshes',[])),collision_options=_input('collision_options'),
-        scene=_input('collision_scene'),max_joint_step=_input('max_joint_step',2.5),
+        scene=_input('collision_scene'),rotation_steps=_input('rotation_steps',16),max_joint_step=_input('max_joint_step',2.5),
         max_base_step=float(_input('max_base_step',.25/scale))*scale,max_yaw_step=_input('max_yaw_step',.25),
         time_intervals=json_input(_input('time_intervals')),
         max_base_speed=None if _input('max_base_speed') is None else float(_input('max_base_speed'))*scale,
@@ -98,6 +99,8 @@ try:
     target_indices=result['target_indices']
     valid=result['fabrication_validated']
     configurations=result['configuration_objects']
+    selected_target_planes=[to_rhino(p,1./scale) for p in result['selected_target_planes']]
+    selected_tcp_rotations=result['selected_tcp_rotations']
     path_cost=result['path_length']
     status=result['status']
     unreachable_points=result['unreachable_points']
@@ -114,6 +117,7 @@ try:
     for i,q in enumerate(result['configurations']):
         for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
+    selected_target_planes,selected_tcp_rotations=[],[]
     valid=False
     base_planes,base_result,configurations,target_indices=[],[],[],[]
     base_path,averaged_line,centerline,joint_plan=None,None,None,None

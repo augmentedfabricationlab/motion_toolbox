@@ -10,6 +10,24 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.28 - 2026-09-17
+
+- Enable 16 equally spaced TCP local-Z rotations by default in mobile validation.
+  Keep target positions/extrusion axes and the base proposal unchanged; evaluate
+  real calibrated tool-aware IK and collisions across all sampled orientations.
+- Connect the combined candidate layers under the existing joint/edge constraints,
+  and return the selected TCP planes and rotation angles with a complete path.
+  Track angles correctly through bounded joint-revolution expansion.
+- Expose rotation_steps in the component and bounded offline replay harness;
+  rotation_steps=1 restores fixed-orientation behavior.
+- Reuse equivalent full-turn swept checks per transition, retaining winding
+  deltas and sample counts in cache keys; add offline progress checkpoints.
+- Validation: 190 tests pass, including rotation selection, bounded revolutions,
+  and cached versus uncached swept-path results. Both captured recordings have
+  collision-free IK states at every target with 16 rotations (1607 and 1561).
+  Both 600-second replays timed out during the joint graph search; complete
+  connected trajectories remain unvalidated, not proven infeasible.
+
 ## 0.1.27 - 2026-09-17
 
 - Replace the mobile Grasshopper geometry experiment with single-proposal base
