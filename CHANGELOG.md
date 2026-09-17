@@ -10,6 +10,17 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.24 - 2026-09-17
+
+- Derive upright base frames from spatial centerline tangents/normals, using
+  target normals only to select one consistent wall side. Offset -0.9 m along
+  base X and +1.2 m along base Y without flipping headings on return passes.
+- Add per-target frame exports and top/3D comparison plots. Geometry only;
+  robot reach, motion limits and collisions are not validated.
+- Validation: 33 centerline/offset/component tests passed; both real recordings
+  checked per target for exact offsets, right-handed frames and global +Z.
+  Top/3D figures inspected.
+
 ## 0.1.23 - 2026-09-17
 
 - Add spatial centerline extraction from repeated smooth XY passes: identify the

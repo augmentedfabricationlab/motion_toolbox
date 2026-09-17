@@ -21,7 +21,7 @@ comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], []
 best_window, shortest_length = None, None
 selected_length, shortest_window, selection_scores = None, None, []
 status = ''
-version = '0.1.23'
+version = '0.1.24'
 try:
     source = globals().get('toolbox_src')
     if source is None:
