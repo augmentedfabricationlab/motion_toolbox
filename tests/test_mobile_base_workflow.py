@@ -58,7 +58,7 @@ def test_rotation_search_recovers_path_and_reports_selected_orientations():
         np.testing.assert_allclose(before.zaxis,after.zaxis,atol=1e-12)
 
 
-def test_rotation_selection_survives_bounded_joint_revolution_expansion():
+def test_rotation_search_does_not_add_revolutions_to_reach_start():
     class RotatedOnly(Solver):
         revolute_joints=tuple(range(6))
         def __call__(self,target,base):
@@ -66,9 +66,10 @@ def test_rotation_selection_survives_bounded_joint_revolution_expansion():
     result=validate_base_path(*fixture(),world=World(),solver=RotatedOnly(),
         joint_ranges=[[-2*np.pi,2*np.pi]]*6,periodic=[False]*6,
         current_pose=[2*np.pi-.4]*6,max_joint_step=.1,rotation_steps=16)
-    assert result['fabrication_validated']
-    np.testing.assert_allclose(result['configurations'],np.full((3,6),2*np.pi-.4))
-    np.testing.assert_allclose(result['selected_tcp_rotations'],np.pi/2)
+    assert not result['fabrication_validated']
+    assert result['disconnected_target']==0
+    assert all(d['collision_free']==1 for d in result['target_diagnostics'])
+    assert result['selected_tcp_rotations']==[]
 
 
 def test_collision_and_no_ik_are_separate_and_all_targets_tested():
@@ -87,7 +88,7 @@ def test_equivalent_sweep_cache_preserves_path_and_distinct_windings():
     class Turns(Solver):
         revolute_joints=(0,)
         def __call__(self,target,base):
-            return [[.2+target.origin[0],0,0,0,0,0]]
+            return [[.2+target.origin[0]+turn,0,0,0,0,0] for turn in (0,-2*np.pi)]
     class Counted(World):
         def __init__(self,cached):
             self.calls=0

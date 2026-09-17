@@ -1,4 +1,4 @@
-"""Validate the new single geometric base proposal in a bounded offline process."""
+"""Validate the single geometric base proposal offline, without a runtime limit."""
 import argparse
 import hashlib
 import json
@@ -60,17 +60,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('case',type=Path)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--timeout',type=float,default=180)
     parser.add_argument('--rotation-steps',type=int,default=16)
     parser.add_argument('--worker',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     if not args.worker:
         with (args.output/'worker.log').open('w') as log:
-            try:
-                run=subprocess.run([sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker'],stdout=log,stderr=subprocess.STDOUT,timeout=args.timeout)
-            except subprocess.TimeoutExpired:
-                (args.output/'timeout.json').write_text(json.dumps(dict(timeout_seconds=args.timeout,status='untested_or_incomplete; worker terminated')))
-                raise SystemExit('Worker exceeded bounded runtime; see worker.log')
+            run=subprocess.run([sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker'],stdout=log,stderr=subprocess.STDOUT)
         raise SystemExit(run.returncode)
     os.environ['TOOLBOX_RECORDING']='0'
     import numpy as np

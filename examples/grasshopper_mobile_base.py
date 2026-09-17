@@ -27,8 +27,7 @@ Outputs:
   base_path, averaged_line, centerline: geometry previews.
 Collision and sampled swept checks are mandatory. TCP positions/Z axes stay fixed.
 selected_target_planes and selected_tcp_rotations report the validated selection.
-The 45-minute limit is component-only and cooperative between solver calls.
-It cannot forcibly interrupt a native call holding the GIL. No robot is commanded.
+Planning has no runtime limit. No robot is commanded.
 """
 import importlib
 import json
@@ -50,12 +49,8 @@ valid=False
 selected_target_planes,selected_tcp_rotations=[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.29'
+version='0.1.30'
 started=time.monotonic()
-
-def _check_deadline():
-    if time.monotonic()-started >= 45*60:
-        raise TimeoutError('Component 45-minute cooperative limit reached; validation incomplete')
 
 try:
     source=_input('toolbox_src',str(Path(__file__).resolve().parents[1]/'src'))
@@ -93,9 +88,7 @@ try:
         max_base_step=float(_input('max_base_step',.25/scale))*scale,max_yaw_step=_input('max_yaw_step',.25),
         time_intervals=json_input(_input('time_intervals')),
         max_base_speed=None if _input('max_base_speed') is None else float(_input('max_base_speed'))*scale,
-        max_yaw_speed=_input('max_yaw_speed'),max_joint_speed=json_input(_input('max_joint_speed')),
-        cancel_check=_check_deadline)
-    _check_deadline()
+        max_yaw_speed=_input('max_yaw_speed'),max_joint_speed=json_input(_input('max_joint_speed')))
     base_planes=[to_rhino(b,1./scale) for b in result['base_planes']]
     base_result=base_planes
     def line(points):return rg.PolylineCurve([rg.Point3d(float(p[0])/scale,float(p[1])/scale,0.) for p in points])

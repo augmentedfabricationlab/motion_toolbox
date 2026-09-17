@@ -163,7 +163,7 @@ def test_tool_may_touch_fixed_wrist_assembly_but_not_upstream_arm_or_environment
 
 
 @pytest.mark.parametrize('wrapped', [False, True])
-def test_equivalent_joint_turns_reuse_collision_check_but_preserve_configurations(tmp_path, wrapped):
+def test_wide_limits_do_not_expand_collision_candidates(tmp_path, wrapped):
     from types import MethodType
     from motion_toolbox.planning import candidates
     path = tmp_path/'wide_limits.urdf'
@@ -183,7 +183,7 @@ def test_equivalent_joint_turns_reuse_collision_check_but_preserve_configuration
         check = partial(scene.is_valid, clearance=.01) if wrapped else scene.is_valid
         qs, _, _ = candidates(Plane.world_xy(), Plane.world_xy(), Solver(), [0],
                               check, [[-7,7]])
-        assert len(qs) == 3
+        assert qs == [[.5]]
         assert len(calls) == 1
         assert scene.configuration_cache_key([8]) != scene.configuration_cache_key([8-2*np.pi])
 

@@ -2,7 +2,6 @@
 from motion_toolbox.recording import recorded, current_run, metric, event
 import json
 import math
-import itertools
 from time import perf_counter
 import numpy as np
 from .geometry import Plane, as_plane
@@ -81,31 +80,12 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 seen.add(key)
                 all_q.append(q.tolist())
     ik_finished = perf_counter()
-    ranged = []
-    groups = []
+    # Keep only the solver's returned representatives; never enumerate +/-2pi.
+    ranged = [q for q in all_q if _in_ranges(q, joint_ranges)]
     checker = getattr(collision, '__self__', None)
     from functools import partial
     if isinstance(collision, partial) and not collision.args:
         checker = getattr(collision.func, '__self__', None)
-    group_key = getattr(checker, 'configuration_group_cache_key', None)
-    for q in all_q:
-        # Analytic IK returns principal angles. Enumerate valid revolutions for
-        # explicitly bounded joints so limits such as [-2*pi, 0] remain usable.
-        alternatives = []
-        for j, value in enumerate(q):
-            bounds = joint_ranges[j] if joint_ranges is not None and j < len(joint_ranges) else None
-            if j in getattr(ik_solver, 'revolute_joints', ()) and bounds is not None and bounds[0] is not None and bounds[1] is not None:
-                lo, hi = bounds
-                if not math.isfinite(lo) or not math.isfinite(hi) or lo > hi:
-                    raise ValueError('Joint bounds must be finite and ordered')
-                alternatives.append([value+2*math.pi*k for k in range(math.ceil((lo-value)/(2*math.pi)), math.floor((hi-value)/(2*math.pi))+1)])
-            else:
-                alternatives.append([value])
-        rows = [list(v) for v in itertools.product(*alternatives) if _in_ranges(v, joint_ranges)]
-        ranged.extend(rows)
-        if rows:
-            key = group_key(alternatives) if group_key is not None else None
-            groups.append((rows, key))
     expansion_finished = perf_counter()
     valid = ranged
     failures = {}
@@ -116,16 +96,8 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
         valid = []
         cache_key = getattr(checker, 'configuration_cache_key', None)
         cache = {}
-        def batches():
-            for rows, key in groups:
-                if key is not None:
-                    yield rows, key
-                else:
-                    for q in rows:
-                        yield [q], cache_key(q) if cache_key is not None else None
-        for rows, key in batches():
-            q = rows[0]
-            collision_cache_hits += len(rows)-1
+        for q in ranged:
+            key = cache_key(q) if cache_key is not None else None
             if key is not None and key in cache:
                 collision_cache_hits += 1
                 accepted, reason = cache[key]
@@ -138,9 +110,9 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 if key is not None:
                     cache[key] = accepted, reason
             if accepted:
-                valid.extend(rows)
+                valid.append(q)
             elif stats is not None:
-                failures[reason] = failures.get(reason, 0)+len(rows)
+                failures[reason] = failures.get(reason, 0)+1
     if stats is not None:
         stats.update(raw_ik=len(all_q), within_joint_limits=len(ranged),
                      collision_checks=collision_checks, collision_rejections=collision_rejections,

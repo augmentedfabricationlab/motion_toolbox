@@ -209,15 +209,14 @@ Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling
 collision/edge checking are rejected explicitly.
 
-The 45-minute component limit is cooperative between solver calls. It cannot
-force-stop a native call holding the GIL. Shared planning APIs have no timeout.
+The component, shared planning APIs and offline replay have no runtime timeout.
 An optional current pose describes the arm at the first proposed base; approach
 motion from another footprint is not included. Stationary planning is unchanged.
 
-Run captures offline in separate killable processes:
+Run captures offline in separate processes:
 
 ```powershell
-python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --timeout 600 --rotation-steps 16
+python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --rotation-steps 16
 ```
 
 The harness verifies READY and every manifest hash, restores captured URDF,
@@ -301,10 +300,8 @@ report the selected base's distances in metres. Failed searches also print
 `timings` separates geometry generation, collision-world setup, IK, joint expansion,
 collision checking and final path search; the same breakdown appears in diagnostics.
 Per-base diagnostics summarize the minimum and maximum solution counts; the full
-list remains available in `solution_counts`. The final path solver indexes full-turn
-variants when every arm axis is revolute and joint step limits are below pi. It
-keeps the same bounded configurations, path cost and optional exact path count,
-while skipping impossible connections between winding variants.
+list remains available in `solution_counts`. Candidate generation retains only
+the IK solver's returned joint representatives, without +/-360-degree expansion.
 `initial_base_plane` previews the first base-body-clear guess even if arm validation
 fails; this output is not an arm-validated placement. A failed bounded search is
 not proof that the whole segment is unreachable. The mobile base is freely placed,
@@ -383,8 +380,8 @@ A finite candidate domain does not establish a global continuous-space optimum.
 
 Bounded joints use actual angle deltas. Set `periodic` only for physically
 continuous joints; otherwise an apparent short wrap can exceed real limits. The
-UR candidate evaluator enumerates equivalent revolutions inside explicit finite
-joint limits. Custom solvers may declare `revolute_joints` to enable that behavior.
+shared candidate evaluator filters the IK solver's original joint angles against
+joint limits without adding equivalent revolutions. This applies to all planners.
 When using periodic joints, configure the same mask in the swept-edge callback.
 
 ## Rolling and static workflows

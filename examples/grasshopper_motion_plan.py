@@ -34,6 +34,9 @@ import sys
 
 def plan_planes(targets, current_pose, base_plane, tcp_plane, *, rotation_steps=1,
                 units_to_metres=1.0, max_joint_step=2.5, joint_ranges=None):
+    # GH keeps imported planners alive after the source file changes.
+    import importlib
+    importlib.reload(importlib.import_module('motion_toolbox.planning'))
     from motion_toolbox.geometry import Plane, as_plane
     from motion_toolbox.planning import calculate_partial_trajectory
     current_pose = list(current_pose) if current_pose is not None else []

@@ -10,6 +10,23 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.30 - 2026-09-17
+
+- Remove automatic +/-360-degree joint candidate expansion from the shared
+  evaluator used by mobile, stationary, rolling and prescribed-base planners.
+  Filter only the original IK representatives against joint limits; bounded
+  joints still use actual angle deltas for transition checks.
+- Remove the mobile GH 45-minute deadline and the offline replay timeout/CLI
+  option. No elapsed-time limit is imposed on planning. Git metadata collection
+  retains its unrelated subprocess timeout.
+- Refresh cached shared planning code in the GH entry points. Keep 16 TCP-Z
+  rotations, collision coverage and all configured motion constraints.
+- Validation: 190 tests pass after updating expansion-specific expectations.
+  Both complete captures validate with 16 TCP rotations and sampled swept joins:
+  1607 targets in 1357.83 s and 1561 targets in 1294.45 s (parallel offline runs).
+  Independent FK checks verify all returned TCP orientations and configurations;
+  maximum TCP position errors are below 2.7e-8 m. Full results remain outside Git.
+
 ## 0.1.29 - 2026-09-17
 
 - Refresh mobile component IK, adapter, graph and collision dependencies in

@@ -151,12 +151,16 @@ def test_active_tool_tcp_and_explicit_calibration():
     assert solver.tool.origin[0] == .2
 
 
-def test_ur_joint_revolutions_respect_limits():
+def test_ur_candidates_filter_original_representatives_without_expansion():
     from motion_toolbox.planning import candidates
     from motion_toolbox.kinematics.ur import forward_kinematics
     from motion_toolbox.kinematics.solver import URKinematics
     q = [.4, -1.3, 1.1, -.6, .9, .7]
+    target, base, solver = forward_kinematics(q), Plane.world_xy(), URKinematics()
+    original = solver(target, base)
+    wide, raw, count = candidates(target, base, solver, [0], joint_ranges=[[-2*math.pi,2*math.pi]]*6)
+    assert wide == original and raw == count == len(original)
     bounds = [[-2*math.pi, 0]] + [[-math.pi, math.pi]]*5
-    qs, _, _ = candidates(forward_kinematics(q), Plane.world_xy(), URKinematics(), [0], joint_ranges=bounds)
-    assert qs
-    assert any(abs(s[0]-(q[0]-2*math.pi)) < 1e-7 for s in qs)
+    filtered, _, _ = candidates(target, base, solver, [0], joint_ranges=bounds)
+    assert filtered == [s for s in original if s[0] <= 0]
+    assert not any(abs(s[0]-(q[0]-2*math.pi)) < 1e-7 for s in filtered)
