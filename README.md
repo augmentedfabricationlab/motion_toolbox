@@ -171,100 +171,55 @@ Environment and tool bodies use explicit distance queries; their automatic conta
 generation is disabled to avoid computing those contacts again during robot self
 checks. This changes query scheduling, not which geometry can reject a pose.
 
-## XY position averaging
+## Mobile base proposal and validation
 
-The former mobile-base planner has been removed. Its existing filepath,
-[examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py), now
-runs only an XY averaging experiment. Load the file by path; no repasting is
-required. The stationary-base component remains unchanged.
+Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
+by file path and recompute. Required inputs are `robot` (Item) and
+`target_planes` (List). The robot must carry its active calibrated tool.
+The component now generates smooth XY passes, extracts a centerline for
+headings, offsets **each pass** 0.9 m normal and 1.2 m tangentially, and validates
+one upright ground base plane per original TCP. It uses the original TCP
+orientations without rotation sampling.
 
-Connect `target_planes` (List, Plane); optionally supply `window_sizes` (List,
-integers). The default tests every integer window from 10 through 200 points
-(or the available range for shorter inputs). Add outputs `averaged_line`,
-`comparison_lines`, `window_sizes_used`, `line_lengths`, `best_window`,
-`selected_length`, `selection_scores`, `shortest_window` and `shortest_length`.
-Old base/arm outputs are cleared. No robot input is needed.
+It checks calibrated arm-origin XY reach (1.75 m), negative target-Z placement,
+base-body collisions, real calibrated IK, joint limits, robot/tool/environment
+collisions, base translation/yaw steps and joint continuity with sampled swept
+collisions. Optional speed limits require `time_intervals`. No offset search or
+constraint relaxation is performed when the proposal fails. Sampled collisions
+are resolution-dependent, not a continuous collision-free proof.
 
-The experiment projects origins onto world XY, computes centered box averages,
-and selects the smallest **L/D**: polyline length divided by the Euclidean
-distance between that averaged line's own first and last points. Using the same
-original endpoint distance for all candidates would not change the length ranking.
-Set optional `selection_metric="length"` to select solely by raw length.
-The default is `"length_ratio"`. A constant line scores 1; nonconstant lines with
-coincident endpoints have undefined ratios and require another metric.
-It keeps one averaged point per original plane, in order, with Z=0. Input units are retained in Rhino.
-It neither resamples nor deduplicates repeated positions. At the ends, windows
-are clipped and their available weights renormalized. Even windows use symmetric
-half-weight endpoints to avoid half-sample phase shifts. Endpoints can move.
+`base_planes` and `base_path` remain visible on a failed proposal. Only `valid`
+(or `result['fabrication_validated']`) indicates a complete validated path;
+`configurations` and `joint_plan` remain empty on failure. `diagnostics` reports
+per-target rejection categories, collision pairs when available, placement
+measurements and disconnected transitions. `target_indices` preserves input
+order; `averaged_line` and `centerline` expose the geometric stages.
 
-For reversal-preserving smoothing, supply optional `max_xy_deviation` (positive,
-in Rhino model units) to the same component. Its `averaged_line` then uses a
-whole-path smooth fit constrained to remain within this distance of **each
-corresponding target**, with diagnostics in `result['smoothing']`. For example,
-use 0.25 in metres or 250 in millimetres. This is a geometric allowance, not a
-robot reach estimate. Existing averaging comparison outputs remain available.
+Units come from Rhino's active document unless `model_units_to_metres` or
+`units_to_metres` is supplied. Component geometric inputs are model units:
+`max_xy_deviation` defaults to 0.25 m, `normal_offset` to 0.9 m,
+`tangent_offset` to 1.2 m and `max_base_step` to 0.25 m after unit conversion.
+`max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
+Robot models, tool calibration, fixed joints and collision-option lengths use
+metres/radians. See the script docstring for all inputs. Old switches disabling
+collision/edge checking or changing TCP orientation are rejected explicitly.
 
-```powershell
-python validation/plot_xy_smoothing.py CASE --output OUTSIDE_GIT
-```
+The 45-minute component limit is cooperative between solver calls. It cannot
+force-stop a native call holding the GIL. Shared planning APIs have no timeout.
+An optional current pose describes the arm at the first proposed base; approach
+motion from another footprint is not included. Stationary planning is unchanged.
 
-This comparison uses 0.10, 0.25 and 0.50 m bounds, with 0.25 m selected for display.
-It minimizes squared XY steps plus 100 times squared second differences. Large
-horizontal excursions must survive the per-index bound; vertical oscillations
-have no effect. The algorithm operates directly in XY and assumes no circular
-wall. The plotted PCA coordinate and hysteresis reversals are diagnostics only;
-PCA is not intrinsic arc length and can be misleading for folded/closed walls.
-The fit uses input index, not physical time, and endpoints can move within the
-bound. Repeated points retain their weight. No speed, IK or collision checks are
-performed. Runs are iteration-bounded; `converged=false` explicitly indicates
-that the objective-gap tolerance was not reached, even though the deviation
-constraint is still enforced. No new runtime dependencies beyond NumPy.
-
-To collapse repeated smoothed passes into one spatial centerline, use
-`motion_toolbox.xy_centerline.centerline_xy(points)`. It finds the dominant XY
-principal axis, averages the perpendicular coordinate in spatial bins, and
-smooths those means. Its endpoints preserve the full longitudinal extent of
-its input. `mapped_points` retains each input point's longitudinal position and
-original ordering on the new centerline. This is a spatial reference curve,
-not a claim that a robot can traverse the workpiece only once. Folded/closed
-shapes may need a different representation. Defaults: 100 bins, 201 output
-stations, Gaussian bandwidth 8% of longitudinal extent; no extra dependencies.
-
-Use `motion_toolbox.xy_offset.centerline_offset_frames(centerline, mapped_points,
-target_x_axes, target_y_axes, pass_points=original_smooth_points)` to construct base frames from this spatial
-centerline. Headings interpolate local arc-length derivatives; target normals
-select one consistent wall side, rather than supplying individual headings.
-Default displacement is -0.9 along base X (normal away from the wall) and +1.2
-along base Y (tangent), in input units. Z is always global +Z. Repeated traversals
-use the same spatial orientation without flipping on reversals. The centerline
-controls headings only; offsets originate at each original smooth pass point.
-Omitting `pass_points` instead offsets the centerline projections. Output frames
-remain geometry proposals, with no robot reach/collision/motion validation.
-
-When `max_xy_deviation` is connected, `grasshopper_mobile_base.py` now also
-outputs `base_planes`, `base_path`, `centerline`, and `target_indices`. Each
-base plane corresponds to the original TCP at the same list index. Set
-`create_base_planes=false` for the earlier curve-only experiment. Physical
-0.9 m / 1.2 m offsets use the active Rhino document's units, or an explicit
-`units_to_metres` (for example 0.001 for millimetres). `max_xy_deviation` remains
-in model units (250 for the 0.25 m experiment in a millimetre document).
-Recompute the existing filepath-loaded component; no code repasting is needed.
-These are geometric frames; `result['fabrication_validated']` is false.
-
-For an offline comparison graphic using an exported capture:
+Run captures offline in separate killable processes:
 
 ```powershell
-python validation/plot_xy_averages.py CASE --output OUTSIDE_GIT --min-window 10 --max-window 200
+python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --timeout 180
 ```
 
-The plot helper needs NumPy and Matplotlib; the averaging module only needs
-NumPy. It reads target positions from the manifest-verified case.json, without
-loading robot assets. It writes PNG/PDF comparison graphics, lengths for every
-window, the selected XY line as JSON/CSV, and provenance. All panels use the same
-XY scale. The selected ratio minimum is green; the shortest raw length is gold.
-Both scores are plotted for every window. Local minima can suggest a
-repeat scale, but length alone is not a frequency detector: larger windows may
-shorten the broad curve and move endpoints. Inspect the full length plot.
+The harness verifies READY and every manifest hash, restores captured URDF,
+calibration, tool/body/environment collisions, fixed joints and allowed pairs,
+and records detailed results. Captures and trial outputs stay outside Git.
+The geometry-only modules (`xy_averaging`, `xy_smoothing`, `xy_centerline`,
+`xy_offset`) and their plotting scripts remain available for experimentation.
 
 ## Stationary base planning
 

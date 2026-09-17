@@ -10,6 +10,22 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.27 - 2026-09-17
+
+- Replace the mobile Grasshopper geometry experiment with single-proposal base
+  generation followed by calibrated IK, placement/body checks, full configured
+  robot/tool/environment collisions, and connected joint/sampled swept checks.
+  Keep failed base proposals inspectable; emit arm configurations only for a
+  complete validated trajectory. Preserve original TCP orientation and ordering.
+- Add base/yaw step and optional timed speed checks, detailed rejection states,
+  and a component-only cooperative 45-minute limit (not native-call termination).
+  Shared planning APIs have no timeout. Stationary planning remains unchanged.
+- Add an integrity-verified offline capture harness with killable subprocesses.
+- Validation: full suite 187 passed. Both real captures were checked in full;
+  fixed-offset proposals fail (first no-IK indices 584 and 104 respectively),
+  with separate configuration-collision diagnostics. No fabrication-ready path
+  is claimed, and graph connectivity is untested when target layers fail.
+
 ## 0.1.26 - 2026-09-17
 
 - Expose one Rhino base plane per original TCP in the existing component when

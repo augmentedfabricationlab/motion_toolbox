@@ -1,108 +1,123 @@
-﻿"""Rhino 8: smooth passes and per-TCP geometric base frames.
-Required: target_planes (List, Plane).
-Optional: window_sizes (List, int; defaults 10..200), toolbox_src (Item, str),
-          selection_metric (Item, str; length_ratio or length, default length_ratio).
-          max_xy_deviation (Item, positive number in model units; enables bounded smoothing).
-          create_base_planes (Item, bool; defaults true when max_xy_deviation supplied).
-          units_to_metres (Item, positive float; otherwise read from Rhino document).
-Outputs: base_planes, base_path, centerline, target_indices, averaged_line, comparison_lines, window_sizes_used, line_lengths,
-         best_window, selected_length, selection_scores, shortest_window,
-         shortest_length, projected_points, result, status.
-Input model units are retained; offsets are 0.9 m normal and 1.2 m tangent.
-Geometry only: no IK, collision or speed validation.
+"""Rhino 8 Python 3: smooth base proposal, then calibrated IK/collision validation.
+
+Load this file by path and recompute. Required: robot (Item), target_planes (List).
+Robot, active tool, calibration and fixed joints use metres/radians.
+Optional inputs:
+  model_units_to_metres / units_to_metres: otherwise inferred from Rhino document.
+  max_xy_deviation: model units, default 0.25 m converted to model units.
+  normal_offset, tangent_offset: model units, defaults 0.9 m and 1.2 m.
+  current_pose: optional six arm radians or named Configuration at first base.
+  arm_in_base: calibrated controller-base plane in model units; normally inferred.
+  arm_joint_names, fixed_joint_values, joint_ranges, group, ur_parameters.
+  collision_meshes: environment meshes, model units.
+  collision_options: JSON; allowed pairs, ground, sampling resolutions, etc.
+  collision_scene: optional fully configured external scene.
+  max_joint_step: default 2.5 rad; max_base_step: default 0.25 m in model units;
+  max_yaw_step: default 0.25 rad.
+  time_intervals: optional seconds, N-1 transitions (N with current_pose).
+  max_base_speed: model units/sec; max_yaw_speed, max_joint_speed: rad/sec.
+  toolbox_src: optional source override.
+Outputs:
+  base_planes / base_result: one geometric proposal per original TCP, even on
+    validation failure. Never interpret these alone as a validated plan.
+  configurations / joint_plan: ONLY a complete validated connected arm trajectory.
+  valid, status, diagnostics, result, timings, unreachable_points, target_indices.
+  base_path, averaged_line, centerline: geometry previews.
+Collision and sampled swept checks are mandatory; original TCP orientations fixed.
+The 45-minute limit is component-only and cooperative between solver calls.
+It cannot forcibly interrupt a native call holding the GIL. No robot is commanded.
 """
-import sys
 import importlib
+import math
+import sys
+import time
 from pathlib import Path
 
-# Clear former planner outputs on the existing filepath-loaded component.
-base_planes, base_result, configurations, unreachable_points = [], [], [], []
-joint_plan, path_cost = None, None
-diagnostics, timings = [], {}
-averaged_line, result = None, None
-comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], [], []
-best_window, shortest_length = None, None
-selected_length, shortest_window, selection_scores = None, None, []
-base_path, centerline, target_indices = None, None, []
-status = ''
-version = '0.1.26'
+
+def _input(name, default=None):
+    value=globals().get(name)
+    return default if value is None else value
+
+
+base_planes,base_result,configurations,target_indices=[],[],[],[]
+base_path,averaged_line,centerline,joint_plan=None,None,None,None
+result,path_cost=None,None
+valid=False
+status=''
+diagnostics,timings,unreachable_points=[],{},[]
+version='0.1.27'
+started=time.monotonic()
+
+def _check_deadline():
+    if time.monotonic()-started >= 45*60:
+        raise TimeoutError('Component 45-minute cooperative limit reached; validation incomplete')
+
 try:
-    source = globals().get('toolbox_src')
-    if source is None:
-        source = str(Path(__file__).resolve().parents[1] / 'src')
-    if str(source) not in sys.path:
-        sys.path.insert(0, str(source))
-    import motion_toolbox.xy_averaging as averaging
-    importlib.reload(averaging)
-    targets = globals().get('target_planes')
-    if targets is None or not len(targets):
-        raise ValueError('Connect target_planes with List access')
-    from motion_toolbox.geometry import as_plane
-    positions = [as_plane(p).origin for p in targets]
-    windows = globals().get('window_sizes')
-    result = averaging.compare_windows(positions, windows if windows is not None and len(windows) else None,
-                                       metric=('length' if globals().get('max_xy_deviation') is not None else
-                                               globals().get('selection_metric') or 'length_ratio'))
+    source=_input('toolbox_src',str(Path(__file__).resolve().parents[1]/'src'))
+    if str(source) not in sys.path:sys.path.insert(0,str(source))
+    for module_name in ('xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_base_workflow'):
+        importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
+    from motion_toolbox.mobile_base_workflow import plan_mobile_base
+    from motion_toolbox.robot_planning import json_input
+    from motion_toolbox.geometry import to_rhino
+    import Rhino
     import Rhino.Geometry as rg
-    def polyline(xy):
-        return rg.PolylineCurve([rg.Point3d(float(x), float(y), 0.) for x, y in xy])
-    comparison_lines = [polyline(c) for c in result['curves']]
-    averaged_line = comparison_lines[result['best_index']]
-    projected_points = [rg.Point3d(float(x), float(y), 0.) for x, y in result['raw_xy']]
-    window_sizes_used, line_lengths = result['windows'], result['lengths']
-    best_window, selected_length = result['best_window'], result['best_length']
-    shortest_window, shortest_length = result['shortest_window'], result['shortest_length']
-    selection_scores = result['scores']
-    status = 'XY average only: window {} points; {} score {:.6g}; length {:.6g} model units.'.format(
-        best_window,result['metric'],result['best_score'],selected_length)
-    deviation = globals().get('max_xy_deviation')
-    if deviation is not None:
-        import motion_toolbox.xy_smoothing as smoothing
-        importlib.reload(smoothing)
-        smoothing_result = smoothing.smooth_xy(positions, float(deviation))
-        result['smoothing'] = smoothing_result
-        averaged_line = polyline(smoothing_result['curve'])
-        selected_length = smoothing_result['length']
-        status = 'Bounded XY smoothing: deviation {:.6g}; length {:.6g}; converged {}. Geometry only.'.format(
-            smoothing_result['measured_max_deviation'], selected_length, smoothing_result['converged'])
-    if globals().get('create_base_planes', deviation is not None):
-        if deviation is None:
-            raise ValueError('Supply max_xy_deviation in model units to create base planes')
-        import math
-        import motion_toolbox.xy_centerline as centerlining
-        import motion_toolbox.xy_offset as offsets
-        importlib.reload(centerlining)
-        importlib.reload(offsets)
-        scale = globals().get('units_to_metres')
-        if scale is None:
-            import Rhino
-            doc = Rhino.RhinoDoc.ActiveDoc
-            if doc is None:
-                raise ValueError('Supply units_to_metres when no Rhino document is active')
-            scale = Rhino.RhinoMath.UnitScale(doc.ModelUnitSystem, Rhino.UnitSystem.Meters)
-        scale = float(scale)
-        if not math.isfinite(scale) or scale <= 0:
-            raise ValueError('units_to_metres must be finite and positive')
-        passes = smoothing_result['curve']
-        guide = centerlining.centerline_xy(passes)
-        numeric_targets = [as_plane(p) for p in targets]
-        frames = offsets.centerline_offset_frames(
-            guide['curve'], guide['mapped_points'],
-            [p.xaxis for p in numeric_targets], [p.yaxis for p in numeric_targets],
-            x_offset=-.9/scale, y_offset=1.2/scale, pass_points=passes)
-        base_planes = [rg.Plane(rg.Point3d(*o), rg.Vector3d(*x), rg.Vector3d(*y))
-                       for o,x,y in zip(frames['origins'],frames['x_axes'],frames['y_axes'])]
-        base_path = polyline(frames['origins'][:, :2])
-        centerline = polyline(guide['curve'])
-        target_indices = list(range(len(targets)))
-        result.update(base_frames=frames, centerline=guide, target_indices=target_indices,
-                      units_to_metres=scale, fabrication_validated=False)
-        status = 'Created {} per-TCP base planes: X toward wall, Y centerline tangent, Z global up. Smoothing converged: {}. Geometry only.'.format(
-            len(base_planes), smoothing_result['converged'])
+    scale=_input('model_units_to_metres',_input('units_to_metres'))
+    if scale is None:
+        doc=Rhino.RhinoDoc.ActiveDoc
+        if doc is None:raise ValueError('Supply model_units_to_metres without an active Rhino document')
+        scale=Rhino.RhinoMath.UnitScale(doc.ModelUnitSystem,Rhino.UnitSystem.Meters)
+    scale=float(scale)
+    if not math.isfinite(scale) or scale<=0:raise ValueError('Positive finite model_units_to_metres required')
+    # Do not silently honor stale switches that disable requested validation.
+    if not _input('collision_check',True) or not _input('check_edges',True):
+        raise ValueError('Mobile validation requires collision_check and check_edges enabled')
+    if _input('rotation_steps',1)!=1:
+        raise ValueError('Use rotation_steps=1 to preserve the original TCP orientations')
+    result=plan_mobile_base(_input('robot'),list(_input('target_planes',[])),units_to_metres=scale,
+        max_xy_deviation=float(_input('max_xy_deviation',.25/scale))*scale,
+        normal_offset=float(_input('normal_offset',.9/scale))*scale,
+        tangent_offset=float(_input('tangent_offset',1.2/scale))*scale,
+        current_pose=_input('current_pose'),arm_in_base=_input('arm_in_base'),
+        arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
+        joint_ranges=_input('joint_ranges'),group=_input('group'),parameters=_input('ur_parameters'),
+        collision_meshes=list(_input('collision_meshes',[])),collision_options=_input('collision_options'),
+        scene=_input('collision_scene'),max_joint_step=_input('max_joint_step',2.5),
+        max_base_step=float(_input('max_base_step',.25/scale))*scale,max_yaw_step=_input('max_yaw_step',.25),
+        time_intervals=json_input(_input('time_intervals')),
+        max_base_speed=None if _input('max_base_speed') is None else float(_input('max_base_speed'))*scale,
+        max_yaw_speed=_input('max_yaw_speed'),max_joint_speed=json_input(_input('max_joint_speed')),
+        cancel_check=_check_deadline)
+    _check_deadline()
+    base_planes=[to_rhino(b,1./scale) for b in result['base_planes']]
+    base_result=base_planes
+    def line(points):return rg.PolylineCurve([rg.Point3d(float(p[0])/scale,float(p[1])/scale,0.) for p in points])
+    base_path=line([b.origin for b in result['base_planes']])
+    averaged_line=line(result['smoothing']['curve'])
+    centerline=line(result['centerline']['curve'])
+    target_indices=result['target_indices']
+    valid=result['fabrication_validated']
+    configurations=result['configuration_objects']
+    path_cost=result['path_length']
+    status=result['status']
+    unreachable_points=result['unreachable_points']
+    diagnostics=[d for d in result['target_diagnostics'] if d['state']!='feasible_state']
+    diagnostics+=result['transition_failures']
+    if result['disconnected_target'] is not None:
+        diagnostics.append(result['disconnected_detail'])
+    if not result['smoothing']['converged']:
+        diagnostics.append('Smoothing reached its iteration cap; deviation bound holds but objective convergence is unconfirmed.')
+    timings=dict(validation_seconds=result['validation_seconds'],component_seconds=time.monotonic()-started)
+    from Grasshopper import DataTree
+    from Grasshopper.Kernel.Data import GH_Path
+    joint_plan=DataTree[float]()
+    for i,q in enumerate(result['configurations']):
+        for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
-    base_planes, base_path, centerline, target_indices = [], None, None, []
-    averaged_line, result = None, None
-    comparison_lines, projected_points, window_sizes_used, line_lengths = [], [], [], []
-    best_window, shortest_length = None, None
-    selected_length, shortest_window, selection_scores = None, None, []
-    status = '{}: {}'.format(type(error).__name__, error)
+    valid=False
+    base_planes,base_result,configurations,target_indices=[],[],[],[]
+    base_path,averaged_line,centerline,joint_plan=None,None,None,None
+    result,path_cost=None,None
+    status='{}: {}'.format(type(error).__name__,error)
+    diagnostics=[status]
+    timings=dict(component_seconds=time.monotonic()-started)
