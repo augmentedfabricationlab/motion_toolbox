@@ -10,6 +10,18 @@ not evidence of a published release. Commit references identify the source.
 
 - Add this version history and require changelog updates with future version bumps.
 
+## 0.1.23 - 2026-09-17
+
+- Add spatial centerline extraction from repeated smooth XY passes: identify the
+  dominant PCA direction, retain the full longitudinal extent, and average only
+  the perpendicular coordinate using spatial bins and local-linear smoothing.
+- Preserve a per-input mapping with unchanged longitudinal coordinates and
+  original traversal order. Export comparison plots for both recordings.
+- Geometry only: no new offsets, robot planning or stationary algorithm changes.
+- Validation: 31 centerline/component tests passed. Both captured smooth lines
+  retain their longitudinal extrema and every mapped longitudinal coordinate
+  within 1e-12 m; rendered comparison plots inspected.
+
 ## 0.1.22 - 2026-09-16
 
 - Add a geometry-only diagonal-offset experiment: one upright ground frame per

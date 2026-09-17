@@ -220,6 +220,16 @@ performed. Runs are iteration-bounded; `converged=false` explicitly indicates
 that the objective-gap tolerance was not reached, even though the deviation
 constraint is still enforced. No new runtime dependencies beyond NumPy.
 
+To collapse repeated smoothed passes into one spatial centerline, use
+`motion_toolbox.xy_centerline.centerline_xy(points)`. It finds the dominant XY
+principal axis, averages the perpendicular coordinate in spatial bins, and
+smooths those means. Its endpoints preserve the full longitudinal extent of
+its input. `mapped_points` retains each input point's longitudinal position and
+original ordering on the new centerline. This is a spatial reference curve,
+not a claim that a robot can traverse the workpiece only once. Folded/closed
+shapes may need a different representation. Defaults: 100 bins, 201 output
+stations, Gaussian bandwidth 8% of longitudinal extent; no extra dependencies.
+
 For an offline comparison graphic using an exported capture:
 
 ```powershell
