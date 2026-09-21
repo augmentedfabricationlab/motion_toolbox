@@ -15,8 +15,13 @@ not evidence of a published release. Commit references identify the source.
   policy operates independently of research logging. Numerical planning,
   calibration, candidate coverage and collision settings are unchanged.
 - A scheduling probe found 2388 identical IK configurations took 1.7-2.0 s with
-  explicit performance requests versus 3-18 s with default scheduling. Full-case
-  timing acceptance is pending; probe timings alone do not establish it.
+  explicit performance requests versus 3-18 s with default scheduling. Two final
+  fresh-process runs of capture 20260921_121845_a3a4e122 completed in 143.28 s and
+  187.19 s, including setup, normal research logging and result serialization.
+  Both validate all 1319 targets with identical optimal joint cost
+  60.77748430022862 and restore the previous thread policy. No saved trajectory
+  is reused. Preferred offsets suffice for all three captured regressions;
+  adaptive recovery is additionally covered by controlled regression tests.
 - Validation: 216 tests pass, including nested policy scopes, interruption,
   restoration failures and unsupported-API fallback. Run metadata includes the
   process ID and native thread ID to correlate scheduling observations.

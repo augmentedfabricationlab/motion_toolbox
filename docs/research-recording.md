@@ -274,3 +274,55 @@ A disposable-process probe of 2388 identical IK configurations measured 1.7-2.0 
 with explicit throughput requests versus 3-18 s under the default policy. Full
 capture acceptance, rather than this probe, determines whether the runtime goal
 is met. Earlier runs affected by background throttling are retained outside Git.
+
+## Captured-case acceptance (2026-09-21)
+
+Version 0.1.32 at implementation commit `29dfbec` completed the latest capture
+`20260921_121845_a3a4e122` twice in fresh processes with identical source hashes,
+normal research logging, 16 TCP-Z rotations and no saved-trajectory reuse:
+
+| Measurement | First final run | Fresh-process confirmation |
+| --- | ---: | ---: |
+| End to end, including setup and recording | 143.28 s | 187.19 s |
+| Setup | 2.02 s | 3.24 s |
+| Geometry | 1.90 s | 3.33 s |
+| Placement screening | 3.33 s | 5.75 s |
+| Calibrated IK | 73.62 s | 125.27 s |
+| Joint filtering | 0.28 s | 0.42 s |
+| Configuration collision checks | 2.37 s | 2.62 s |
+| Exact graph search | 15.99 s | 21.31 s |
+| Measured recorder overhead | 26.46 s | 7.23 s |
+
+Phase timers are not an additive decomposition of end-to-end time. Both runs
+return 1319 upright base frames and connected arm configurations, with exact
+minimum summed arm-joint travel 60.77748430022862 over the sampled configurations
+for that base path. Graph-first checks 1319 selected configurations from 108394
+candidates and certifies the first shortest path. The separate full-case order
+comparison measured 9.52 s graph-first versus 100.19 s collision-first after
+common candidate generation, with identical optimal cost.
+
+The base path has maximum translation step 0.04665 m, yaw step 0.01567 rad and
+joint step 0.43488 rad, within the capture's 0.25 m, 0.25 rad and 2.5 rad limits.
+Maximum calibrated arm-origin XY reach is 1.603 m against the 1.75 m limit.
+Configuration collisions are checked at every original target; transitions are
+not collision-checked. These captures supply no target timing, so speed checks
+are covered by targeted tests rather than claimed for the captured trajectories.
+
+Earlier captures `20260916_165102_2ae63c0d` and `20260916_204312_5c6b046f`
+validate all 1607 and 1561 targets with the same numerical implementation before
+the final scheduling wrapper. They ran concurrently under variable scheduling,
+with a recorded process-local CPU-policy change late in validation, and took
+2867.09 s and 2607.44 s. Those are correctness regressions, not performance
+acceptance measurements. All three captures succeed at the preferred 0.9 m
+normal / 1.2 m tangential offsets; controlled tests exercise adaptive repair.
+
+The 216-test suite passes. GH loading, defaults and diagnostics are covered by
+tests, and offline replay uses the same numerical workflow; the Rhino UI itself
+was not executed for this acceptance. Results, per-target frames/configurations,
+settings, source/capture hashes, research databases, CSV metrics and plots are
+stored outside Git under `motion_planning_cases/mobile_adaptive_20260921`.
+Reproduce a fresh run with:
+
+```powershell
+.\.venv\Scripts\python.exe validation\validate_mobile_base_case.py CASE_DIRECTORY --output NEW_OUTSIDE_GIT_DIRECTORY --rotation-steps 16
+```
