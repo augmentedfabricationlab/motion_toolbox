@@ -37,7 +37,7 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 6
+RECORDING_VERSION = 7
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
@@ -168,6 +168,7 @@ class ResearchRun:
         ''')
         metadata = dict(python=sys.version, platform=platform.platform(), machine=platform.machine(),
                         processor=platform.processor(), cpu_count=os.cpu_count(),
+                        pid=os.getpid(), created_thread_id=threading.get_native_id(),
                         argv=sys.argv, cwd=str(Path.cwd()), seed=self.encode(self.seed), tags=self.encode(self.tags),
                         packages={d.metadata['Name']: d.version for d in importlib.metadata.distributions()
                                   if d.metadata['Name']}, detail=self.detail,

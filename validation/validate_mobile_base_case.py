@@ -82,6 +82,7 @@ def main():
     from motion_toolbox.geometry import Plane,as_plane
     from motion_toolbox.mobile_base_workflow import plan_base_path
     from motion_toolbox.recording import ResearchRun,recorded,event
+    from motion_toolbox.execution import high_qos
     from motion_toolbox import __version__
     import motion_toolbox.mobile_base_workflow as module
     start=time.perf_counter();cpu=time.process_time()
@@ -90,6 +91,7 @@ def main():
         (args.output/'progress.json').write_text(json.dumps(message,indent=2))
         print(json.dumps(message),flush=True)
     @recorded
+    @high_qos
     def execute():
         data=load_case(args.case);r=data['replay']
         event('capture.verified',case_sha256=case_hash,targets=len(r['targets']),

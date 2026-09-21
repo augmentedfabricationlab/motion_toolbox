@@ -9,6 +9,7 @@ from time import perf_counter
 import math
 import numpy as np
 from .recording import recorded, current_run, event, metric
+from .execution import high_qos
 from .geometry import Plane, as_plane
 from .xy_smoothing import smooth_xy
 from .xy_centerline import centerline_xy
@@ -246,6 +247,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 
 
 @recorded
+@high_qos
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
                    max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2, **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
@@ -301,6 +303,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
 
 
 @recorded
+@high_qos
 def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviation=.25,
                      normal_offset=.9, tangent_offset=1.2, adapt_offsets=True, current_pose=None, arm_in_base=None,
                      arm_joint_names=None, fixed_joint_values=None, joint_ranges=None,

@@ -226,6 +226,12 @@ configuration collision checking are rejected explicitly. Legacy `check_edges` i
 do not enable swept checks in the mobile component.
 
 The component, shared planning APIs and offline replay have no runtime timeout.
+On Windows, mobile planning requests HighQoS for its calling thread during the
+calculation and restores the prior thread policy afterward. This prevents hidden
+or background windows from silently reducing planning throughput. The request is
+advisory; it does not change the process priority, CPU affinity or system power
+plan. `execution_policy` and the research events report application/restoration
+and any unsupported-platform fallback.
 An optional current pose describes the arm at the first proposed base; approach
 motion from another footprint is not included. Stationary planning is unchanged.
 

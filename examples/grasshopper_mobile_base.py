@@ -52,7 +52,7 @@ selected_target_planes,selected_tcp_rotations=[],[]
 applied_offsets,repair_attempts,research_run=[],[],None
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.31'
+version='0.1.32'
 started=time.monotonic()
 
 try:
@@ -61,7 +61,7 @@ try:
     sys.path.insert(0,str(source))
     importlib.invalidate_caches()
     import motion_toolbox.recording as recording
-    if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<6:
+    if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<7:
         importlib.reload(recording)
     import motion_toolbox
     importlib.reload(motion_toolbox)
@@ -69,7 +69,7 @@ try:
     # consumers, including their from-import bindings to older solver functions.
     for module_name in ('kinematics.ur','kinematics.solver','kinematics.calibrated',
                         'graph','planning','robot_adapter','collision','robot_planning',
-                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_adaptation','mobile_base_workflow'):
+                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','execution','mobile_adaptation','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base
     from motion_toolbox.robot_planning import json_input
@@ -119,6 +119,7 @@ try:
     result['effective_settings'].update(component_version=version,
         planner_path=str(importlib.import_module('motion_toolbox.mobile_base_workflow').__file__))
     diagnostics=[json.dumps(result['effective_settings'],sort_keys=True),
+                 'CPU execution: '+json.dumps(result.get('execution_policy',{}),sort_keys=True),
                  'Research run: '+str(research_run),
                  'Configuration collisions checked; transition collisions not checked.']
     diagnostics += [json.dumps(d,sort_keys=True) for d in result['target_diagnostics'] if d['state']!='feasible_state']

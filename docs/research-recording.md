@@ -254,3 +254,23 @@ pairs/environment. Individual Bullet collision queries are fast in both designs;
 these different models/checks prevent a direct historical runtime comparison.
 The new capture benchmark measured 108394 configuration checks before graph search
 versus 1319 after graph search, both with optimal joint cost 60.77748430022862.
+
+## Windows execution policy (0.1.32)
+
+Mobile planning and the offline replay operation request HighQoS on the calling
+thread for the scope of the operation. Nested scopes reuse the request, and the
+prior policy is restored on success, failure or interruption. The request also
+applies with recording disabled. Unsupported APIs retain the default policy and
+report the error without changing the numerical result. The result's
+`execution_policy` and `execution.cpu_policy` / `execution.cpu_policy_finished`
+events retain the previous/requested Windows state and restoration outcome.
+State arrays contain version, control mask and state mask, respectively.
+
+This is an advisory scheduling request, not a process-priority increase, CPU
+affinity restriction, power-plan change or runtime limit. Microsoft documents
+visibility/focus-dependent scheduling and explicit thread requests in
+[Windows Quality of Service](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service).
+A disposable-process probe of 2388 identical IK configurations measured 1.7-2.0 s
+with explicit throughput requests versus 3-18 s under the default policy. Full
+capture acceptance, rather than this probe, determines whether the runtime goal
+is met. Earlier runs affected by background throttling are retained outside Git.

@@ -4,6 +4,23 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.32 - 2026-09-21
+
+- Request Windows HighQoS only on the mobile planning thread for the duration of
+  computation, restoring its previous policy afterward. Apply the same scope to
+  offline replay setup/planning. Nested scopes are shared; unsupported APIs fall
+  back without changing numerical results. No priority, CPU affinity, system
+  power-plan or runtime-limit setting is changed.
+- Record the requested and restored policy and show it in GH diagnostics. The
+  policy operates independently of research logging. Numerical planning,
+  calibration, candidate coverage and collision settings are unchanged.
+- A scheduling probe found 2388 identical IK configurations took 1.7-2.0 s with
+  explicit performance requests versus 3-18 s with default scheduling. Full-case
+  timing acceptance is pending; probe timings alone do not establish it.
+- Validation: 216 tests pass, including nested policy scopes, interruption,
+  restoration failures and unsupported-API fallback. Run metadata includes the
+  process ID and native thread ID to correlate scheduling observations.
+
 ## 0.1.31 - 2026-09-21
 
 - Use the shared exact layered graph for mobile configuration collision checking:
@@ -35,7 +52,11 @@ not evidence of a published release. Commit references identify the source.
   rotations, movement/speed constraints, repair joins, caching and recording.
   Before batched IK, the latest capture validated all 1319 targets in 273.90 s,
   but its fresh-process confirmation took 440.67 s and missed the runtime goal.
-  Final performance acceptance and previous-capture regressions remain pending.
+  With batched IK, two full runs again validated all targets at the identical
+  optimal cost, but took 1141.65 s and 2600.27 s under variable Windows scheduling.
+  Previous captures also validate all 1607 and 1561 targets. Their recorded
+  overall times include a documented CPU-policy change during graph validation.
+  Scoped scheduling and final timing acceptance are addressed in 0.1.32.
 - Add this version history and require changelog updates with future version bumps.
 
 ## 0.1.30 - 2026-09-17
