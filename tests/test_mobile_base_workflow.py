@@ -34,13 +34,14 @@ def validate(world=None,solver=None,**kw):
         joint_ranges=[[-3,3]]*6,periodic=[False]*6,**kw)
 
 
-def test_complete_path_requires_every_target_and_swept_join():
+def test_complete_path_checks_configurations_and_never_swept_joins():
     world=World()
     checked=[]
     world.edge_is_valid=lambda q0,b0,q1,b1,**kw: checked.append((q0,q1)) or True
     result=validate(world)
     assert result['fabrication_validated']
-    assert len(result['configurations'])==3 and len(checked)==2
+    assert len(result['configurations'])==3 and checked==[]
+    assert result['optimality_certified'] and not result['check_edges']
 
 
 def test_rotation_search_recovers_path_and_reports_selected_orientations():
@@ -68,7 +69,8 @@ def test_rotation_search_does_not_add_revolutions_to_reach_start():
         current_pose=[2*np.pi-.4]*6,max_joint_step=.1,rotation_steps=16)
     assert not result['fabrication_validated']
     assert result['disconnected_target']==0
-    assert all(d['collision_free']==1 for d in result['target_diagnostics'])
+    assert all(d['within_joint_limits']==1 for d in result['target_diagnostics'])
+    assert result['unchecked_points']==[0,1,2]
     assert result['selected_tcp_rotations']==[]
 
 
@@ -79,46 +81,36 @@ def test_collision_and_no_ik_are_separate_and_all_targets_tested():
     class Missing(Solver):
         def __call__(self,t,b):return [] if t.origin[0]==.1 else super().__call__(t,b)
     result=validate(world,Missing())
-    assert [d['state'] for d in result['target_diagnostics']]==['configuration_collision','no_ik','feasible_state']
+    assert [d['state'] for d in result['target_diagnostics']]==['configuration_untested','no_ik','configuration_untested']
     assert not result['fabrication_validated'] and not result['configurations']
-    assert result['unchecked_points']==[]
+    assert result['unchecked_points']==[0,2]
+    checked=validate(world)
+    assert checked['target_diagnostics'][0]['state']=='configuration_collision'
+    assert 'tool collision' in str(checked['target_diagnostics'][0]['rejection_reasons'])
 
 
-def test_equivalent_sweep_cache_preserves_path_and_distinct_windings():
-    class Turns(Solver):
-        revolute_joints=(0,)
-        def __call__(self,target,base):
-            return [[.2+target.origin[0]+turn,0,0,0,0,0] for turn in (0,-2*np.pi)]
-    class Counted(World):
-        def __init__(self,cached):
-            self.calls=0
-            if not cached: self.configuration_cache_key=None
-        def configuration_cache_key(self,q):
-            return tuple(np.round([(q[0]+np.pi)%(2*np.pi)-np.pi]+list(q[1:]),10))
-        def edge_is_valid(self,q0,b0,q1,b1,**kw):
-            self.calls+=1
-            # Endpoints differing by a full revolution do not imply the same sweep.
-            return abs(q1[0]-q0[0])<1
-    results=[];worlds=[]
-    for cached in (False,True):
-        world=Counted(cached);worlds.append(world)
-        results.append(validate_base_path(*fixture(),world=world,solver=Turns(),
-            joint_ranges=[[-2*np.pi,2*np.pi]]+[[-3,3]]*5,periodic=[False]*6,
-            max_joint_step=7,rotation_steps=1))
-    assert results[0]['fabrication_validated'] and results[1]['fabrication_validated']
-    np.testing.assert_allclose(results[0]['configurations'],results[1]['configurations'])
-    assert results[0]['edge_rejection_reasons']==results[1]['edge_rejection_reasons']
-    assert results[1]['edge_cache_hits']>0
-    assert worlds[1].calls<worlds[0].calls
-
-
-def test_disconnected_transition_has_exact_target_and_collision_reason():
+def test_pose_cache_reuses_only_unchanged_target_base_configurations():
     world=World()
-    world.last_failure='tool collision: tool[0] / wall'
-    world.edge_is_valid=lambda *args,**kw:False
-    result=validate(world)
+    calls=[]
+    world.is_valid=lambda q,b,**kw: calls.append((q,b)) or True
+    cache={}
+    first=validate(world,_cache=cache)
+    second=validate(world,_cache=cache)
+    assert first['configurations']==second['configurations']
+    assert len(calls)==3 and second['ik_cache_hits']==3 and second['collision_cache_hits']==3
+    targets,bases=fixture()
+    bases[1]=Plane(bases[1].origin+[.001,0,0],bases[1].xaxis,bases[1].yaxis)
+    third=validate_base_path(targets,bases,solver=Solver(),world=world,
+        joint_ranges=[[-3,3]]*6,periodic=[False]*6,_cache=cache)
+    assert third['ik_cache_hits']==2 and len(calls)==4
+
+
+def test_disconnected_transition_has_exact_target_and_measured_step():
+    class Jump(Solver):
+        def __call__(self,t,b):return [[2.]*6] if t.origin[0]==.1 else super().__call__(t,b)
+    result=validate(solver=Jump(),max_joint_step=.25)
     assert result['disconnected_target']==1
-    assert 'tool collision' in str(result['edge_rejection_reasons'])
+    assert result['disconnected_detail']['minimum_joint_step_limit_ratio']>1
     assert not result['configurations']
 
 

@@ -5,6 +5,7 @@ import numpy as np
 from .solver import URKinematics
 from .ur import inverse_kinematics
 from ..geometry import Plane, as_plane, rigid_inverse
+from ..recording import recorded
 
 
 def _rotation(axis, angle):
@@ -30,6 +31,7 @@ class CalibratedURKinematics(URKinematics):
     refinement. Controller calibration and TCP transforms stay independent of
     the captured link geometry. The solver does not query a live robot.
     """
+    @recorded
     def __init__(self, urdf, joint_names, *, controller_link, end_link, fixed_joint_values=None, **options):
         super().__init__(**options)
         root = ET.fromstring(urdf)
@@ -85,6 +87,8 @@ class CalibratedURKinematics(URKinematics):
         if found != names or len(names) != 6:
             raise ValueError('Calibrated chain must contain the six arm joints in order')
         self.end_transform = pending
+        self._skews = [np.array([[0,-z,y],[z,0,-x],[-y,x,0]]) for x,y,z in self.axes]
+        self._skew_squares = [s@s for s in self._skews]
         self.model_accuracy = 'calibrated URDF FK, 1e-7 m/rad solver tolerance'
 
     def forward(self, q, jacobian=False):
@@ -117,11 +121,54 @@ class CalibratedURKinematics(URKinematics):
             q += step
         return None
 
+    def _forward_batch(self, configurations):
+        """The same calibrated FK/Jacobian, evaluated for all active branches."""
+        q = np.asarray(configurations, dtype=float)
+        T = np.broadcast_to(np.eye(4), (len(q), 4, 4)).copy()
+        points = np.empty((len(q), 6, 3))
+        axes = np.empty_like(points)
+        for j, (origin, axis, skew, square) in enumerate(zip(
+                self.origins, self.axes, self._skews, self._skew_squares)):
+            T = T @ origin
+            points[:, j] = T[:, :3, 3]
+            axes[:, j] = T[:, :3, :3] @ axis
+            angles = q[:, j, None, None]
+            rotation = np.eye(3) + np.sin(angles)*skew + (1-np.cos(angles))*square
+            T[:, :3, :3] = T[:, :3, :3] @ rotation
+        T = T @ self.end_transform
+        jacobian = np.concatenate((np.cross(axes, T[:, None, :3, 3]-points).transpose(0, 2, 1),
+                                   axes.transpose(0, 2, 1)), axis=1)
+        return T, jacobian
+
+    def _refine_seeds(self, target, seeds):
+        """Retain seed order and scalar refinement tolerances/iteration limits.
+
+        Only FK and Jacobian arithmetic is batched. Each branch still uses the
+        same least-squares solve and acceptance test, including singular cases.
+        """
+        if not len(seeds):
+            return []
+        q = np.asarray(seeds, dtype=float).copy()
+        active = np.arange(len(q))
+        accepted = np.zeros(len(q), dtype=bool)
+        for _ in range(16):
+            actual, jacobian = self._forward_batch(q[active])
+            position = target[:3, 3]-actual[:, :3, 3]
+            rotation = .5*np.cross(actual[:, :3, :3].transpose(0, 2, 1), target[:3, :3].T).sum(axis=1)
+            converged = ((np.linalg.norm(position, axis=1) <= 1e-7)
+                         & (np.linalg.norm(actual[:, :3, :3]-target[:3, :3], axis=(1, 2)) <= 1.4e-7))
+            accepted[active[converged]] = True
+            active = active[~converged]
+            if not len(active):
+                break
+            error = np.concatenate((position[~converged], rotation[~converged]), axis=1)
+            steps = np.array([np.linalg.lstsq(J, e, rcond=1e-8)[0]
+                              for J, e in zip(jacobian[~converged], error)])
+            steps *= np.minimum(1., .25/np.maximum(np.max(abs(steps), axis=1), 1e-12))[:, None]
+            q[active] += steps
+        return q[accepted].tolist()
+
+    @recorded(detail=True)
     def __call__(self, target, base):
         T = self._arm_inverse@rigid_inverse(as_plane(base).matrix)@as_plane(target).matrix@self._tcp_to_flange
-        result = []
-        for seed in inverse_kinematics(Plane.from_matrix(T),self.parameters):
-            q = self.refine(T,seed)
-            if q is not None:
-                result.append(q)
-        return result
+        return self._refine_seeds(T, inverse_kinematics(Plane.from_matrix(T),self.parameters))

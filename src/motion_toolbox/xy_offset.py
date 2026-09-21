@@ -1,7 +1,9 @@
 """Geometric upright frames along an ordered XY line; no feasibility planning."""
 import numpy as np
+from .recording import recorded
 
 
+@recorded
 def centerline_offset_frames(centerline, mapped_points, target_x_axes, target_y_axes,
                              x_offset=-.9, y_offset=1.2, *, pass_points=None):
     """Use the spatial centerline's normal/tangent, independent of travel direction.
@@ -57,6 +59,7 @@ def centerline_offset_frames(centerline, mapped_points, target_x_axes, target_y_
     return frames
 
 
+@recorded
 def offset_frames(line_points, target_x_axes, target_y_axes, x_offset=-.9, y_offset=1.2):
     """One right-handed ground frame per target, in input units and order.
 

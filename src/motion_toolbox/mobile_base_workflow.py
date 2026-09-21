@@ -1,15 +1,14 @@
-"""Smooth mobile-base proposal and full ordered IK/collision validation.
+"""Smooth adaptive mobile-base proposals and ordered configuration validation.
 
-No base search or automatic constraint relaxation. Shared APIs have no timeout;
+No automatic constraint relaxation. Shared APIs have no timeout;
 callers may provide a cooperative cancel_check callback.
 """
 from collections import Counter
 from contextlib import ExitStack
-from functools import partial
 from time import perf_counter
 import math
 import numpy as np
-from .recording import recorded
+from .recording import recorded, current_run, event, metric
 from .geometry import Plane, as_plane
 from .xy_smoothing import smooth_xy
 from .xy_centerline import centerline_xy
@@ -19,6 +18,7 @@ from .planning import candidates, rotation_offsets
 from .graph import shortest_path
 
 
+@recorded
 def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2):
     targets = [as_plane(t) for t in targets]
     smoothing = smooth_xy([t.origin for t in targets], max_xy_deviation)
@@ -36,8 +36,8 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
                        current_pose=None, rotation_steps=16, max_joint_step=2.5, max_base_step=.25,
                        max_yaw_step=.25, max_reach_xy=1.75, collision_options=None,
                        time_intervals=None, max_base_speed=None, max_yaw_speed=None,
-                       max_joint_speed=None, cancel_check=None, progress=None):
-    """Check every target, then connect feasible states with sampled swept checks.
+                       max_joint_speed=None, cancel_check=None, progress=None, _cache=None):
+    """Find the exact shortest arm path with configuration-only collision checking.
 
     time_intervals contains one duration per transition (N-1, or N with a start
     configuration). The optional starting arm configuration is at bases[0]; an
@@ -57,7 +57,6 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
     periodic=np.asarray(periodic,dtype=bool)
     options=dict(collision_options or {})
     clearance=options.get('clearance',0.)
-    edge_options={k:options[k] for k in ('joint_resolution','base_resolution','yaw_resolution') if k in options}
     durations=None if time_intervals is None else np.asarray(time_intervals,dtype=float)
     expected=len(targets)-int(current_pose is None)
     if durations is not None and (durations.shape!=(expected,) or not np.isfinite(durations).all() or np.any(durations<=0)):
@@ -82,143 +81,235 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
             for name,value,limit in [('base_speed',d/dt,max_base_speed),('yaw_speed',angle/dt,max_yaw_speed)]:
                 if limit is not None and value>limit+1e-12: errors.append(dict(reason=name,measured=value,limit=limit))
         if errors: transitions.append(dict(from_target=i-1,to_target=i,rejections=errors))
-    layers,diagnostics,layer_angles=[],[],[]
+    # Cache lifetime is one adaptive planning call, with a fixed robot/world,
+    # calibration, ranges and collision settings. Pose keys retain full precision.
+    cache = {} if _cache is None else _cache
+    ik_cache = cache.setdefault('ik', {})
+    collision_cache = cache.setdefault('collision', {})
+    layers, diagnostics, layer_angles, keys = [], [], [], []
+    timing = dict(placement_seconds=0., ik_seconds=0., joint_filter_seconds=0.,
+                  collision_seconds=0., graph_seconds=0.)
+    ik_hits = collision_hits = collision_checks = 0
+    def pose_key(target, base):
+        return target.matrix.tobytes(), base.matrix.tobytes()
     def joint_key(q):
-        values=np.asarray(q,dtype=float).copy()
-        angular=list(getattr(solver,'revolute_joints',()))
-        values[angular]=(values[angular]+np.pi)%(2*np.pi)-np.pi
-        return tuple(np.round(values,8))
+        return tuple(np.round(q, 12))
+    event('mobile.validation_policy', collision_order='after_graph', check_edges=False,
+          rotation_steps=int(rotation_steps), targets=len(targets),
+          selection='full-case comparison 20260921: before_graph 100.186 s; after_graph 9.521 s; identical cost')
     for i,(target,base) in enumerate(zip(targets,bases)):
         check()
-        angles={}
-        placement=StationaryRegion([target],solver.arm_in_base,max_distance=max_reach_xy,projected=True).metrics(base)
-        detail=dict(index=i,placement=placement,raw_ik=None,within_joint_limits=None,collision_free=None,rejection_reasons={})
-        if not np.allclose(base.zaxis,[0,0,1],atol=1e-10) or abs(base.origin[2])>1e-10:
-            detail.update(state='placement_rejection',reason='Base is not upright at ground Z=0')
-            rows=[]
-        elif not placement['geometry_valid']:
-            detail.update(state='placement_rejection',reason='Negative target-Z side or calibrated arm-origin XY reach rule',reach_limit=max_reach_xy)
-            rows=[]
-        elif not world.is_base_valid(base,clearance=clearance):
-            detail.update(state='body_collision',reason=world.last_failure)
-            rows=[]
+        key = pose_key(target,base)
+        keys.append(key)
+        if key in ik_cache:
+            rows, angles, stored = ik_cache[key]
+            detail = dict(stored, index=i)
+            ik_hits += 1
         else:
-            def tracked_solver(rotated, footprint):
-                check()
-                angle=math.atan2(np.dot(target.yaxis,rotated.xaxis),np.dot(target.xaxis,rotated.xaxis))%(2*math.pi)
-                solutions=solver(rotated,footprint)
-                for q in solutions: angles.setdefault(joint_key(q),angle)
-                return solutions
-            tracked_solver.revolute_joints=getattr(solver,'revolute_joints',())
-            rows,_,_=candidates(target,base,tracked_solver,offsets,partial(world.is_valid,clearance=clearance),joint_ranges,stats=detail)
-            detail['state']=('feasible_state' if rows else 'no_ik' if not detail['raw_ik'] else
-                             'joint_limit_rejection' if not detail['within_joint_limits'] else 'configuration_collision')
-        detail["rotation_steps"]=int(rotation_steps)
-        diagnostics.append(detail);layers.append(rows)
-        layer_angles.append([angles[joint_key(q)] for q in rows])
+            tick = perf_counter()
+            placement=StationaryRegion([target],solver.arm_in_base,max_distance=max_reach_xy,projected=True).metrics(base)
+            detail=dict(index=i,placement=placement,raw_ik=None,within_joint_limits=None)
+            rows, angles = [], []
+            if not np.allclose(base.zaxis,[0,0,1],atol=1e-10) or abs(base.origin[2])>1e-10:
+                detail.update(state='placement_rejection',reason='Base is not upright at ground Z=0')
+            elif not placement['geometry_valid']:
+                detail.update(state='placement_rejection',reason='Negative target-Z side or calibrated arm-origin XY reach rule',reach_limit=max_reach_xy)
+            elif not world.is_base_valid(base,clearance=clearance):
+                detail.update(state='body_collision',reason=world.last_failure)
+            timing['placement_seconds'] += perf_counter()-tick
+            if 'state' not in detail:
+                angles_by_q = {}
+                def tracked_solver(rotated, footprint):
+                    check()
+                    angle=math.atan2(np.dot(target.yaxis,rotated.xaxis),np.dot(target.xaxis,rotated.xaxis))%(2*math.pi)
+                    solutions=list(solver(rotated,footprint))
+                    for q in solutions:
+                        angles_by_q.setdefault(joint_key(q),angle)
+                    return solutions
+                tracked_solver.revolute_joints=getattr(solver,'revolute_joints',())
+                raw_stats = {}
+                rows,_,_=candidates(target,base,tracked_solver,offsets,None,joint_ranges,stats=raw_stats)
+                detail.update(raw_ik=raw_stats['raw_ik'],within_joint_limits=raw_stats['within_joint_limits'])
+                timing['ik_seconds'] += raw_stats['ik_seconds']
+                timing['joint_filter_seconds'] += raw_stats['joint_expansion_seconds']
+                angles = [angles_by_q[joint_key(q)] for q in rows]
+                detail['state'] = 'configuration_untested' if rows else ('no_ik' if not raw_stats['raw_ik'] else 'joint_limit_rejection')
+            ik_cache[key] = rows, angles, dict(detail)
+        detail.update(rotation_steps=int(rotation_steps), collision_free=None,
+                      collision_checks=0, collision_rejections=0, rejection_reasons={})
+        layers.append(rows);layer_angles.append(angles);diagnostics.append(detail)
         if progress is not None and ((i+1)%100==0 or i+1==len(targets)):
-            progress(dict(stage='target_validation',tested=i+1,total=len(targets),
-                state_counts=dict(Counter(d['state'] for d in diagnostics)),
-                elapsed_seconds=perf_counter()-started))
-    unreachable=[i for i,rows in enumerate(layers) if not rows]
-    edge_failures={}
-    edge_cache={}
-    edge_cache_layer=[None]
-    edge_cache_hits=[0]
-    physical_key=getattr(world,'configuration_cache_key',None)
-    def edge_valid(i,a,b):
-        check()
-        q0=current_pose if i==0 else layers[i-1][a]
-        base0=bases[0] if i==0 else bases[i-1]
-        q1=layers[i][b]
-        if max_joint_speed is not None:
-            delta=np.asarray(q1)-q0
-            delta[periodic]=(delta[periodic]+math.pi)%(2*math.pi)-math.pi
-            dt=durations[i-1 if current_pose is None else i]
-            speed=abs(delta)/dt
-            if np.any(speed>np.asarray(max_joint_speed)+1e-12):
-                edge_failures.setdefault(i,Counter())['joint speed limit: measured {} rad/s, limit {}'.format(speed.tolist(),max_joint_speed)]+=1
-                return False
-        if edge_cache_layer[0]!=i:
-            edge_cache.clear();edge_cache_layer[0]=i
-            if progress is not None and i%100==0:
-                progress(dict(stage='joint_graph',target=i,total=len(targets),
-                    edge_cache_hits=edge_cache_hits[0],elapsed_seconds=perf_counter()-started))
-        cache_key=None
-        if physical_key is not None:
-            k0,k1=physical_key(q0),physical_key(q1)
-            if k0[0]!='out_of_range' and k1[0]!='out_of_range':
-                delta=np.asarray(q1)-q0
-                delta[periodic]=(delta[periodic]+math.pi)%(2*math.pi)-math.pi
-                # Preserve the exact number of sampled states: tiny roundoff at
-                # a resolution boundary must not change collision coverage.
-                y0=math.atan2(base0.xaxis[1],base0.xaxis[0])
-                y1=math.atan2(bases[i].xaxis[1],bases[i].xaxis[0])
-                yaw=abs((y1-y0+math.pi)%(2*math.pi)-math.pi)
-                samples=max(1,math.ceil(np.max(abs(delta))/edge_options.get('joint_resolution',.05)),
-                    math.ceil(np.linalg.norm(bases[i].origin-base0.origin)/edge_options.get('base_resolution',.02)),
-                    math.ceil(yaw/edge_options.get('yaw_resolution',.05)))
-                cache_key=(k0,k1,tuple(np.round(delta,10)),samples)
-        if cache_key is not None and cache_key in edge_cache:
-            accepted,reason=edge_cache[cache_key];edge_cache_hits[0]+=1
+            progress(dict(stage='ik_candidates',tested=i+1,total=len(targets),ik_cache_hits=ik_hits,
+                          elapsed_seconds=perf_counter()-started))
+    per_layer = None
+    if max_joint_speed is not None:
+        per_layer = np.tile(step,(len(targets),1))
+        first = int(current_pose is None)
+        per_layer[first:] = np.minimum(step, durations[:,None]*np.broadcast_to(max_joint_speed,(6,)))
+    def node_valid(i,j):
+        nonlocal collision_hits, collision_checks
+        key = keys[i], tuple(layers[i][j])
+        if key in collision_cache:
+            accepted, reason = collision_cache[key]
+            collision_hits += 1
         else:
-            accepted=world.edge_is_valid(q0,base0,q1,bases[i],periodic=periodic,clearance=clearance,**edge_options)
-            reason=world.last_failure or 'sampled swept collision'
-            if cache_key is not None: edge_cache[cache_key]=(accepted,reason)
-        if not accepted: edge_failures.setdefault(i,Counter())[reason]+=1
+            tick = perf_counter()
+            accepted = world.is_valid(layers[i][j],bases[i],clearance=clearance)
+            reason = None if accepted else (world.last_failure or 'Configuration collision')
+            timing['collision_seconds'] += perf_counter()-tick
+            collision_checks += 1
+            collision_cache[key] = accepted, reason
+        d = diagnostics[i]
+        d['collision_checks'] += 1
+        if accepted:
+            d['collision_free'] = (d['collision_free'] or 0)+1
+            d['state'] = 'feasible_state'
+        else:
+            d['collision_rejections'] += 1
+            reasons = d['rejection_reasons']
+            reasons[reason] = reasons.get(reason,0)+1
+            if d['collision_rejections'] == len(layers[i]):
+                d['state'] = 'configuration_collision'
+                d['collision_free'] = 0
         return accepted
-    solved=None
-    if not unreachable and not transitions:
-        if progress is not None: progress(dict(stage='joint_graph',target=0,total=len(targets),state_counts=dict(Counter(d['state'] for d in diagnostics))))
+    graph_stats = {}
+    solved = None
+    initial_failure = None
+    if current_pose is not None:
+        from .planning import _in_ranges, normalize_joint_ranges
+        if len(current_pose)!=6 or not np.isfinite(current_pose).all():
+            raise ValueError('current_pose requires six finite radians')
+        if not _in_ranges(current_pose, normalize_joint_ranges(joint_ranges,6)):
+            initial_failure = 'Starting configuration exceeds joint limits'
+        elif not world.is_valid(current_pose,bases[0],clearance=clearance):
+            initial_failure = world.last_failure or 'Starting configuration collision'
+    if all(len(rows) for rows in layers) and not transitions and initial_failure is None:
+        if progress is not None:
+            progress(dict(stage='joint_graph',total=len(targets),elapsed_seconds=perf_counter()-started))
         solved=shortest_path(layers,start=current_pose,periodic=periodic,max_step=max_joint_step,
-            edge_valid=edge_valid,count_paths=False,revolute_joints=getattr(solver,'revolute_joints',None))
-    configurations=solved.configurations if solved is not None else []
-    valid=len(configurations)==len(targets)
-    selected_angles=[layer_angles[i][j] for i,j in enumerate(solved.indices)] if valid else []
-    selected_targets=[target.rotated_z(angle) for target,angle in zip(targets,selected_angles)]
-    failure_layer=solved.failure_layer if solved is not None else None
-    disconnected_detail=None
+            step_limits=per_layer,node_valid=node_valid,stats=graph_stats,count_paths=False,
+            revolute_joints=getattr(solver,'revolute_joints',None),cancel_check=cancel_check)
+        timing['graph_seconds'] = graph_stats['graph_seconds']
+    configurations = solved.configurations if solved is not None else []
+    valid = len(configurations)==len(targets)
+    selected_angles = [layer_angles[i][j] for i,j in enumerate(solved.indices)] if valid else []
+    selected_targets = [t.rotated_z(a) for t,a in zip(targets,selected_angles)]
+    unreachable = [d['index'] for d in diagnostics if d['state'] in
+                   ('placement_rejection','body_collision','no_ik','joint_limit_rejection','configuration_collision')]
+    unchecked = [d['index'] for d in diagnostics if d['state']=='configuration_untested']
+    failure_layer = 0 if initial_failure else (solved.failure_layer if solved is not None else None)
+    disconnected_detail = None
     if failure_layer is not None:
-        previous=([current_pose] if failure_layer==0 else
-                  [layers[failure_layer-1][i] for i in solved.reachable_indices])
-        best=None
-        limit=np.broadcast_to(np.asarray(max_joint_step,dtype=float),(6,))
-        for q0 in previous:
-            delta=np.asarray(layers[failure_layer])-q0
-            delta[:,periodic]=(delta[:,periodic]+math.pi)%(2*math.pi)-math.pi
-            score=np.max(abs(delta)/limit,axis=1)
-            j=int(np.argmin(score))
-            if best is None or score[j]<best[0]: best=(float(score[j]),abs(delta[j]).tolist())
+        previous = ([current_pose] if failure_layer==0 and current_pose is not None else
+                    [layers[failure_layer-1][j] for j in solved.reachable_indices] if failure_layer>0 else [])
+        best = None
+        limit = step if per_layer is None else per_layer[failure_layer]
+        if layers[failure_layer]:
+            for q0 in previous:
+                delta=np.asarray(layers[failure_layer])-q0
+                delta[:,periodic]=(delta[:,periodic]+math.pi)%(2*math.pi)-math.pi
+                score=np.max(abs(delta)/np.maximum(limit,1e-15),axis=1)
+                j=int(np.argmin(score))
+                if best is None or score[j]<best[0]:best=(float(score[j]),abs(delta[j]).tolist())
         disconnected_detail=dict(from_target=failure_layer-1,to_target=failure_layer,
             minimum_joint_step_limit_ratio=None if best is None else best[0],
             joint_deltas_at_nearest_pair=None if best is None else best[1],joint_step_limits=limit.tolist(),
-            edge_rejections=dict(edge_failures.get(failure_layer,{})))
+            reason=initial_failure or 'No connected path under configuration and movement constraints')
     counts=dict(Counter(d['state'] for d in diagnostics))
-    if valid: status='Validated {} targets and a connected arm path with sampled swept collisions.'.format(len(targets))
+    if valid:
+        status='Validated {} targets and the exact shortest connected arm path; configuration collisions checked, transitions not collision-checked.'.format(len(targets))
+    elif initial_failure:
+        status=initial_failure+'. No validated arm path.'
     elif unreachable:
         i=unreachable[0];status='Proposal failed at target {}: {}. No validated arm path.'.format(i,diagnostics[i]['state'])
-    elif transitions: status='Proposal failed at base transition {} -> {}.'.format(transitions[0]['from_target'],transitions[0]['to_target'])
-    else: status='Disconnected arm path at transition {} -> {} (joint-step or sampled swept constraints).'.format(failure_layer-1 if failure_layer is not None else '?',failure_layer)
+    elif transitions:
+        status='Proposal failed at base transition {} -> {}.'.format(transitions[0]['from_target'],transitions[0]['to_target'])
+    else:
+        status='Disconnected arm path at transition {} -> {}.'.format(failure_layer-1 if failure_layer is not None else '?',failure_layer)
+    timing['validation_seconds'] = perf_counter()-started
+    for name,value in timing.items():metric('mobile.'+name,value,'s')
+    for name,value in dict(ik_cache_hits=ik_hits,collision_cache_hits=collision_hits,collision_checks=collision_checks).items():
+        metric('mobile.'+name,value)
+    event('mobile.validation_result',valid=valid,state_counts=counts,unchecked_targets=unchecked,
+          unreachable_targets=unreachable,disconnected=disconnected_detail)
     return dict(base_planes=bases,configurations=configurations,fabrication_validated=valid,
-        edge_cache_hits=edge_cache_hits[0],rotation_steps=int(rotation_steps),selected_tcp_rotations=selected_angles,selected_target_planes=selected_targets,
+        optimality_certified=valid,collision_order='after_graph',graph_stats=graph_stats,
+        ik_cache_hits=ik_hits,collision_cache_hits=collision_hits,rotation_steps=int(rotation_steps),
+        selected_tcp_rotations=selected_angles,selected_target_planes=selected_targets,
         status=status,target_diagnostics=diagnostics,state_counts=counts,unreachable_points=unreachable,
-        unchecked_points=[],transition_failures=transitions,disconnected_target=failure_layer,
-        disconnected_detail=disconnected_detail,edge_rejection_reasons={str(k):dict(v) for k,v in edge_failures.items()},
-        max_joint_step=max_joint_step,path_length=solved.cost if solved else None,
-        collision_check_applied=True,check_edges=True,speed_checked=any(v is not None for v in (max_base_speed,max_yaw_speed,max_joint_speed)),
-        validation_seconds=perf_counter()-started)
+        unchecked_points=unchecked,transition_failures=transitions,disconnected_target=failure_layer,
+        disconnected_detail=disconnected_detail,edge_rejection_reasons={},initial_state_failure=initial_failure,
+        max_joint_step=max_joint_step,path_length=solved.cost if valid else None,
+        collision_check_applied=True,check_edges=False,collision_validation='configurations_only',
+        speed_checked=any(v is not None for v in (max_base_speed,max_yaw_speed,max_joint_speed)),
+        timings=timing,validation_seconds=timing['validation_seconds'])
+
+
+@recorded
+def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
+                   max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2, **limits):
+    """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
+    from .mobile_adaptation import repair_offsets
+    started = perf_counter()
+    targets = [as_plane(t) for t in targets]
+    tick = perf_counter()
+    proposal = generate_base_path(targets,max_xy_deviation=max_xy_deviation,
+                                  normal_offset=normal_offset,tangent_offset=tangent_offset)
+    geometry_seconds = perf_counter()-tick
+    cache = {}
+    totals = Counter()
+    def validate(bases):
+        result = validate_base_path(targets,bases,solver=solver,world=world,joint_ranges=joint_ranges,
+                                   periodic=periodic,_cache=cache,**limits)
+        totals.update(result['timings'])
+        return result
+    result = validate(proposal['base_planes'])
+    applied = np.tile([normal_offset,abs(tangent_offset)],(len(targets),1))
+    attempts = []
+    repair_seconds = 0.
+    if adapt_offsets and not result['fabrication_validated'] and not result['initial_state_failure']:
+        def probe(indices,bases):
+            options = {k:v for k,v in limits.items() if k in
+                       ('rotation_steps','max_reach_xy','collision_options','cancel_check')}
+            # Anchor tests are individual placement checks, not transitions over
+            # skipped TCPs. Full original-index connectivity is checked afterward.
+            for i,b in zip(indices,bases):
+                p = validate_base_path([targets[i]],[b],solver=solver,world=world,
+                    joint_ranges=joint_ranges,periodic=periodic,_cache=cache,**options)
+                totals.update(p['timings'])
+                if not p['fabrication_validated']:
+                    return False
+            return True
+        tick = perf_counter()
+        extent = limits.get('max_reach_xy',1.75)+np.linalg.norm(solver.arm_in_base.origin[:2])+max_xy_deviation
+        result,applied,attempts = repair_offsets(targets,proposal['base_planes'],result,
+            validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
+            search_extent=float(extent),cancel_check=limits.get('cancel_check'))
+        repair_seconds = perf_counter()-tick
+    if tangent_offset < 0:applied[:,1] *= -1
+    proposal.update(result)
+    proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets))
+    proposal['timings'] = dict(totals,geometry_seconds=geometry_seconds,repair_seconds=repair_seconds,
+                              planning_seconds=perf_counter()-started)
+    if attempts and not result['fabrication_validated']:
+        proposal['status'] += ' Sampled offset repair search exhausted; this is not proof of infeasibility.'
+    run = current_run()
+    proposal['research_run'] = str(run.path) if run is not None else None
+    event('mobile.plan_result',valid=result['fabrication_validated'],targets=len(targets),
+          repair_attempts=len(attempts),timings=proposal['timings'])
+    return proposal
 
 
 @recorded
 def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviation=.25,
-                     normal_offset=.9, tangent_offset=1.2, current_pose=None, arm_in_base=None,
+                     normal_offset=.9, tangent_offset=1.2, adapt_offsets=True, current_pose=None, arm_in_base=None,
                      arm_joint_names=None, fixed_joint_values=None, joint_ranges=None,
                      collision_meshes=(), collision_options=None, group=None, parameters=None,
                      scene=None, cancel_check=None, **limits):
     """Robot boundary: inputs planes/meshes in model units; geometric settings metres.
 
     Robot/tool and fixed joints are metres/radians. Targets may rotate about local
-    TCP Z (16 samples by default), preserving positions and extrusion directions. Collision and sampled edge validation are mandatory.
+    TCP Z (16 samples by default), preserving positions and extrusion directions. Configuration collision validation is mandatory; swept edges are not checked.
     """
     from .robot_adapter import kinematics_from_robot,resolve_arm_joint_names,configuration_from_values,_active_tool
     from .robot_planning import json_input
@@ -226,8 +317,8 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
     if robot is None: raise ValueError('Connect robot with its calibrated active tool')
     if not math.isfinite(units_to_metres) or units_to_metres<=0: raise ValueError('units_to_metres must be positive')
     if _active_tool(robot,group) is None: raise ValueError('Attach the calibrated active tool before mobile validation')
+    setup_started=perf_counter()
     targets=[as_plane(t,units_to_metres) for t in target_planes]
-    proposal=generate_base_path(targets,max_xy_deviation=max_xy_deviation,normal_offset=normal_offset,tangent_offset=tangent_offset)
     if cancel_check: cancel_check()
     names=resolve_arm_joint_names(robot,arm_joint_names,group=group)
     joints={j.name:j for j in robot.model.get_configurable_joints()}
@@ -260,14 +351,17 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
             for mesh in collision_meshes: world.add_mesh(mesh,scale=units_to_metres)
             if 'ground_z' in options: world.add_ground(options['ground_z'],support_links=options.get('support_links',()))
         world.set_fixed_joints(fixed)
-        validation=validate_base_path(targets,proposal['base_planes'],solver=solver,world=world,joint_ranges=ranges,
-            periodic=[joints[n].type==1 for n in names],current_pose=start,collision_options=options,cancel_check=cancel_check,**limits)
-    proposal.update(validation)
+        setup_seconds=perf_counter()-setup_started
+        proposal=plan_base_path(targets,solver=solver,world=world,joint_ranges=ranges,
+            periodic=[joints[n].type==1 for n in names],current_pose=start,collision_options=options,
+            adapt_offsets=adapt_offsets,max_xy_deviation=max_xy_deviation,normal_offset=normal_offset,
+            tangent_offset=tangent_offset,cancel_check=cancel_check,**limits)
+    proposal['timings']['setup_seconds']=setup_seconds
     output_names=[n for n,j in joints.items() if j.type==2 and n not in names]+names
-    proposal['configuration_objects']=[configuration_from_values([dict(fixed,**dict(zip(names,q)))[n] for n in output_names],output_names,[joints[n].type for n in output_names]) for q in validation['configurations']]
+    proposal['configuration_objects']=[configuration_from_values([dict(fixed,**dict(zip(names,q)))[n] for n in output_names],output_names,[joints[n].type for n in output_names]) for q in proposal['configurations']]
     proposal.update(arm_in_base=solver.arm_in_base,fixed_joint_values=fixed,mounting_source=solver.mounting_source)
     proposal['effective_settings']=dict(units_to_metres=units_to_metres,
-        rotation_steps=validation['rotation_steps'],solver=type(solver).__name__,
+        rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
         tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),
         fixed_joint_values=fixed,first_target=targets[0].to_dict(),

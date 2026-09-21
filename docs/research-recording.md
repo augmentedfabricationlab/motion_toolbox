@@ -99,10 +99,12 @@ a physical distance. Use custom metrics with units for research quantities.
   filtering, graph search/layer reachability/disconnections, rolling buffer updates,
   robot adapters, scene construction/assets, path editing, JSON input/output and CLI jobs.
 - Candidate filtering: raw IK count, expanded solutions within joint limits,
-  collision-free count, rejection reasons, separate IK/expansion/collision durations.
+  collision-free count, rejection reasons, separate IK/joint-filter/collision durations. The legacy `joint_expansion_seconds`
+  timing field now measures filtering only; no revolutions are expanded.
   `collision_checks` counts actual checker calls, `collision_rejections` counts
   rejected calls, and `collision_cache_hits` counts reused results for equivalent
-  joint turns. Rejection-reason totals count expanded configurations, not contacts.
+  joint turns. Rejection-reason totals count rejected configurations, not contacts.
+  `collision_check_applied` distinguishes candidate filtering without collision tests.
 - Graph: layer/node/possible inter-layer edge counts, per-layer reachability and
   minimum cost, final configurations, indices, exact complete-path count and cost.
 - Detail mode: individual FK/IK calls, configuration/base/transition collision tests
@@ -204,3 +206,51 @@ file snapshots and checksums, disabled/detail modes, thread isolation, automatic
 runs, and recording I/O failures. Run the normal numerical suites with
 `TOOLBOX_RECORDING=0` to avoid archiving test fixtures; recorder tests use explicit
 runs or override that setting.
+
+
+## Mobile planning and coverage audit (0.1.31)
+
+The existing recorder is shared by all motion-toolbox public workflows; no second
+logging implementation is introduced. The audit covers these operation boundaries:
+
+| Tool family | Normal record | Optional detail / exclusions |
+| --- | --- | --- |
+| XY averaging, smoothing, centerline and offset construction | Inputs/outputs at outer calls; nested durations, counts, convergence and geometric metrics | Scalar/vector arithmetic helpers are not separately recorded |
+| Robot adapters and calibrated IK setup | Model/tool/mount settings, source fingerprints, fixed joints and setup duration | Individual IK calls require detail; internal solver FK acceptance remains active |
+| Candidates and filtering | IK/filter time, original candidate counts, rejection categories and collision policy | Generated candidate arrays omitted from nested normal logs |
+| Graph, stationary, prescribed-base and rolling planning | Graph sizes, reachability, selected path/cost, errors and high-level phase durations | Lazy node validation requires `count_paths=False`; it does not claim a count of unchecked paths |
+| Mobile geometry, validation and offset repair | Exactness flag, configuration-only policy, applied offsets, trial intervals, anchors, results, cache hits and phase timings | No transition collision checking; no additional production FK audit |
+| Collision setup and batches through planners | Scene/model assets, allowed pairs, counters and rejection reasons | Per-configuration/base/edge calls require detail; planner summaries always report the policy |
+| File I/O, static CLI and joint editing | Existing public operation records and artifact references | Small indexing/conversion helpers inherit the calling operation's record |
+
+Mobile GH returns the research-run directory and readable diagnostics. Offline
+replay explicitly groups loading, setup and planning under one recorded operation
+and writes `result.json`, phase progress and a `research/` run under the requested
+output directory. Input capture hashes, calibration, collision settings, source
+hashes and version identify the run. `end_to_end_seconds` includes worker startup,
+scene setup, planning, normal recording and result serialization. The reported
+`recording_overhead_seconds` sums measured per-step recorder overhead; do not add
+nested phase durations to estimate total time. Geometry/setup, placement, IK,
+filtering, collision and graph timings explain work; `repair_seconds` and total
+planning/validation durations are inclusive and overlap those phases.
+
+Normal logs retain final paths but aggregate per-target frame metrics and repair
+counts instead of recording thousands of repeated scalar metrics. Detailed tracing
+remains opt-in. Explicit KeyboardInterrupt/SystemExit exits are marked interrupted;
+a forcibly terminated process may retain running status. Logging errors remain
+visible and do not change numerical results.
+
+The collision-order comparison is reproducible with
+`validation/benchmark_collision_order.py CASE --output OUTSIDE_GIT`. This benchmark
+compares identical full-case IK layers using existing toolbox functions; it is not
+a selectable production planner mode. Its standalone call recording overhead is
+included in its measurements; acceptance runs use the actual grouped workflow.
+
+Slab Net Zero's inspected PyBullet workflow uses `ur20_spraying_tool.urdf`, a fixed
+spawn pose per batch, and separate environment/self/ground checks (currently enabled
+by its wrapper, ground offset -1 m). The mobile captures use the chassis/lift/arm
+model, calibrated flange TCP, attached tool collision mesh and captured allowed
+pairs/environment. Individual Bullet collision queries are fast in both designs;
+these different models/checks prevent a direct historical runtime comparison.
+The new capture benchmark measured 108394 configuration checks before graph search
+versus 1319 after graph search, both with optimal joint cost 60.77748430022862.

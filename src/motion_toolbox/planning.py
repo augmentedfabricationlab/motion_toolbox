@@ -115,11 +115,14 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 failures[reason] = failures.get(reason, 0)+1
     if stats is not None:
         stats.update(raw_ik=len(all_q), within_joint_limits=len(ranged),
+                     collision_check_applied=collision is not None,
+                     collision_validation='configurations_only' if collision is not None else 'not_checked',
                      collision_checks=collision_checks, collision_rejections=collision_rejections,
                      collision_cache_hits=collision_cache_hits,
                      collision_free=len(valid), rejection_reasons=failures,
                      ik_seconds=ik_finished-started,
                      joint_expansion_seconds=expansion_finished-ik_finished,
+                     joint_filter_seconds=expansion_finished-ik_finished,
                      collision_seconds=perf_counter()-expansion_finished)
         for name in ('raw_ik', 'within_joint_limits', 'collision_free', 'collision_checks', 'collision_rejections', 'collision_cache_hits'):
             metric(name, stats[name])

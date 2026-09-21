@@ -16,6 +16,30 @@ def rows(run, sql):
         return db.execute(sql).fetchall()
 
 
+def test_mobile_run_records_policy_counts_and_readable_path(tmp_path):
+    from motion_toolbox.mobile_base_workflow import validate_base_path
+    from test_mobile_base_workflow import fixture, Solver, World
+    with ResearchRun(tmp_path,name='mobile logging regression',config={'rotation_steps':16}) as run:
+        result=validate_base_path(*fixture(),solver=Solver(),world=World(),
+            joint_ranges=[[-3,3]]*6,periodic=[False]*6)
+    assert result['fabrication_validated'] and not result['check_edges']
+    events=rows(run,'SELECT name FROM events')
+    assert {'mobile.validation_policy','mobile.validation_result','graph.configuration_validation'} <= {r[0] for r in events}
+    metrics={r[0] for r in rows(run,'SELECT name FROM metrics')}
+    assert {'mobile.ik_seconds','mobile.collision_seconds','graph.graph_solves','recording_overhead'} <= metrics
+    assert not any('base_planes[' in name for name in metrics)
+    metadata=json.loads(rows(run,'SELECT metadata_json FROM run')[0][0])
+    assert metadata['loaded_modules']
+    assert rows(run,'SELECT status FROM run')[0][0]=='ok'
+
+
+def test_explicit_interruption_is_not_recorded_as_success(tmp_path):
+    with pytest.raises(KeyboardInterrupt):
+        with ResearchRun(tmp_path) as run:
+            raise KeyboardInterrupt()
+    assert rows(run,'SELECT status FROM run')[0][0]=='interrupted'
+
+
 def test_git_timeout_is_cached_and_source_archive_survives(tmp_path, monkeypatch):
     import subprocess
     calls = []

@@ -6,6 +6,7 @@ Optional inputs:
   model_units_to_metres / units_to_metres: default 1 (metres), matching captures.
     Set 0.001 explicitly for millimetre-valued input geometry.
   max_xy_deviation: model units, default 0.25 m converted to model units.
+  adapt_offsets: default True; repair infeasible offsets smoothly.
   normal_offset, tangent_offset: model units, defaults 0.9 m and 1.2 m.
   current_pose: optional six arm radians or named Configuration at first base.
   arm_in_base: calibrated controller-base plane in model units; normally inferred.
@@ -25,7 +26,8 @@ Outputs:
   configurations / joint_plan: ONLY a complete validated connected arm trajectory.
   valid, status, diagnostics, result, timings, unreachable_points, target_indices.
   base_path, averaged_line, centerline: geometry previews.
-Collision and sampled swept checks are mandatory. TCP positions/Z axes stay fixed.
+Configuration collisions are checked; transitions are not collision-checked.
+TCP positions/Z axes stay fixed.
 selected_target_planes and selected_tcp_rotations report the validated selection.
 Planning has no runtime limit. No robot is commanded.
 """
@@ -47,9 +49,10 @@ base_path,averaged_line,centerline,joint_plan=None,None,None,None
 result,path_cost=None,None
 valid=False
 selected_target_planes,selected_tcp_rotations=[],[]
+applied_offsets,repair_attempts,research_run=[],[],None
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.30'
+version='0.1.31'
 started=time.monotonic()
 
 try:
@@ -57,13 +60,16 @@ try:
     if str(source) in sys.path:sys.path.remove(str(source))
     sys.path.insert(0,str(source))
     importlib.invalidate_caches()
+    import motion_toolbox.recording as recording
+    if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<6:
+        importlib.reload(recording)
     import motion_toolbox
     importlib.reload(motion_toolbox)
     # Rhino keeps modules alive between recomputes. Refresh dependencies before
     # consumers, including their from-import bindings to older solver functions.
     for module_name in ('kinematics.ur','kinematics.solver','kinematics.calibrated',
                         'graph','planning','robot_adapter','collision','robot_planning',
-                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_base_workflow'):
+                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','mobile_adaptation','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base
     from motion_toolbox.robot_planning import json_input
@@ -74,9 +80,12 @@ try:
     scale=float(scale)
     if not math.isfinite(scale) or scale<=0:raise ValueError('Positive finite model_units_to_metres required')
     # Do not silently honor stale switches that disable requested validation.
-    if not _input('collision_check',True) or not _input('check_edges',True):
-        raise ValueError('Mobile validation requires collision_check and check_edges enabled')
+    if not _input('collision_check',True):
+        raise ValueError('Mobile validation requires configuration collision checking')
+    def _progress(message):
+        print('Mobile planner: '+json.dumps(message,sort_keys=True))
     result=plan_mobile_base(_input('robot'),list(_input('target_planes',[])),units_to_metres=scale,
+        adapt_offsets=bool(_input('adapt_offsets',True)),progress=_progress,
         max_xy_deviation=float(_input('max_xy_deviation',.25/scale))*scale,
         normal_offset=float(_input('normal_offset',.9/scale))*scale,
         tangent_offset=float(_input('tangent_offset',1.2/scale))*scale,
@@ -100,26 +109,32 @@ try:
     configurations=result['configuration_objects']
     selected_target_planes=[to_rhino(p,1./scale) for p in result['selected_target_planes']]
     selected_tcp_rotations=result['selected_tcp_rotations']
+    applied_offsets=result['applied_offsets'].tolist()
+    repair_attempts=result['repair_attempts']
+    research_run=result['research_run']
     path_cost=result['path_length']
     status=result['status']
     unreachable_points=result['unreachable_points']
     # GH panels display raw Python dictionaries as a .NET type name.
     result['effective_settings'].update(component_version=version,
         planner_path=str(importlib.import_module('motion_toolbox.mobile_base_workflow').__file__))
-    diagnostics=[json.dumps(result['effective_settings'],sort_keys=True)]
+    diagnostics=[json.dumps(result['effective_settings'],sort_keys=True),
+                 'Research run: '+str(research_run),
+                 'Configuration collisions checked; transition collisions not checked.']
     diagnostics += [json.dumps(d,sort_keys=True) for d in result['target_diagnostics'] if d['state']!='feasible_state']
     diagnostics += [json.dumps(d,sort_keys=True) for d in result['transition_failures']]
     if result['disconnected_target'] is not None:
         diagnostics.append(json.dumps(result['disconnected_detail'],sort_keys=True))
     if not result['smoothing']['converged']:
         diagnostics.append('Smoothing reached its iteration cap; deviation bound holds but objective convergence is unconfirmed.')
-    timings=dict(validation_seconds=result['validation_seconds'],component_seconds=time.monotonic()-started)
+    timings=dict(result['timings'],component_seconds=time.monotonic()-started)
     from Grasshopper import DataTree
     from Grasshopper.Kernel.Data import GH_Path
     joint_plan=DataTree[float]()
     for i,q in enumerate(result['configurations']):
         for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
+    applied_offsets,repair_attempts,research_run=[],[],None
     selected_target_planes,selected_tcp_rotations=[],[]
     valid=False
     base_planes,base_result,configurations,target_indices=[],[],[],[]

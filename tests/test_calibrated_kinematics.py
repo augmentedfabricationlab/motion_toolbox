@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import pytest
 from motion_toolbox.geometry import Plane
 from motion_toolbox.kinematics.calibrated import CalibratedURKinematics
 
@@ -45,3 +46,47 @@ def test_tcp_and_mount_are_applied_during_refinement():
     assert rows
     for q in rows:
         np.testing.assert_allclose(base.matrix@mount.matrix@solver.forward(q)@tool.matrix,target.matrix,atol=1e-7)
+
+
+@pytest.mark.parametrize('tilted_axes', [False, True])
+def test_batched_fk_and_jacobians_match_calibrated_scalar_chain(tilted_axes):
+    xml = chain().replace('axis xyz="0 0 1"', 'axis xyz="0.001 -0.002 1"') if tilted_axes else chain()
+    solver = CalibratedURKinematics(xml, ['j'+str(i) for i in range(6)],
+        controller_link='root', end_link='tool0')
+    qs = np.random.default_rng(5).uniform(-6, 6, (40, 6))
+    actual, jacobians = solver._forward_batch(qs)
+    for q, T, J in zip(qs, actual, jacobians):
+        reference, derivative = solver.forward(q, True)
+        np.testing.assert_allclose(T, reference, atol=3e-15)
+        np.testing.assert_allclose(J, derivative, atol=3e-15)
+
+
+@pytest.mark.parametrize('tilted_axes', [False, True])
+def test_batched_refinement_retains_scalar_branches_and_acceptance(tilted_axes):
+    from motion_toolbox.kinematics.ur import inverse_kinematics
+    xml = chain().replace('axis xyz="0 0 1"', 'axis xyz="0.001 -0.002 1"') if tilted_axes else chain()
+    solver = CalibratedURKinematics(xml, ['j'+str(i) for i in range(6)],
+        controller_link='root', end_link='tool0')
+    qs = np.random.default_rng(19).uniform(-2, 2, (20, 6))
+    qs[:3, 4] = [0., 1e-8, np.pi]  # Wrist singularities / near singularities.
+    for q in qs:
+        target = solver.forward(q)
+        seeds = inverse_kinematics(Plane.from_matrix(target), solver.parameters)
+        reference = [row for seed in seeds for row in [solver.refine(target, seed)] if row is not None]
+        actual = solver._refine_seeds(target, seeds)
+        np.testing.assert_allclose(actual, reference, atol=1e-9, rtol=1e-9)
+        for row in actual:
+            fk = solver.forward(row)
+            assert np.linalg.norm(fk[:3, 3]-target[:3, 3]) <= 1e-7
+            assert np.linalg.norm(fk[:3, :3]-target[:3, :3]) <= 1.4e-7
+
+
+def test_batched_refinement_rejects_unconverged_and_empty_seeds():
+    solver = CalibratedURKinematics(chain(), ['j'+str(i) for i in range(6)],
+        controller_link='root', end_link='tool0')
+    target = np.eye(4)
+    target[:3, 3] = [4, 4, 4]
+    seeds = np.random.default_rng(12).uniform(-2, 2, (8, 6))
+    assert all(solver.refine(target, seed) is None for seed in seeds)
+    assert solver._refine_seeds(target, seeds) == []
+    assert solver._refine_seeds(target, []) == []

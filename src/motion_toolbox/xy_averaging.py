@@ -1,7 +1,9 @@
 """Compare position-only XY moving averages; no robot or base planning."""
 import numpy as np
+from .recording import recorded
 
 
+@recorded
 def moving_average_xy(points, window):
     """Centered box average at each original index, ignoring height.
 
@@ -31,6 +33,7 @@ def line_length(points):
     return float(np.linalg.norm(np.diff(np.asarray(points), axis=0), axis=1).sum())
 
 
+@recorded
 def compare_windows(points, windows=None, metric='length_ratio'):
     """Rank XY averages by length / their own endpoint distance, or length.
 

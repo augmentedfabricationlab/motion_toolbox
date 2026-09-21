@@ -37,7 +37,7 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 5
+RECORDING_VERSION = 6
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
@@ -363,8 +363,9 @@ class ResearchRun:
                 # Candidate steps already record these per-target metrics and
                 # events. Keep the full diagnostics in the result artifact,
                 # without thousands of duplicate SQLite commits at each parent.
-                if key == 'target_diagnostics' and isinstance(item, list):
-                    self.metric(prefix + '.target_diagnostics.count', len(item))
+                if key in ('target_diagnostics','base_planes','selected_target_planes','configuration_objects',
+                           'repair_attempts') and isinstance(item, list):
+                    self.metric(prefix + '.' + key + '.count', len(item))
                     continue
                 self._result_metrics(item, prefix + '.' + str(key))
         elif isinstance(value, (int, float, bool)):
@@ -398,7 +399,7 @@ class ResearchRun:
 
     def __exit__(self, kind, error, tb):
         try:
-            self.close('error' if kind else 'ok')
+            self.close('interrupted' if kind and issubclass(kind, (KeyboardInterrupt, SystemExit)) else 'error' if kind else 'ok')
         finally:
             self._context.__exit__(kind, error, tb)
 

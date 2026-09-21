@@ -4,10 +4,38 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
-## Unreleased
+## 0.1.31 - 2026-09-21
 
-### Documentation
-
+- Use the shared exact layered graph for mobile configuration collision checking:
+  solve, reject colliding selected nodes, and solve again until the shortest path
+  is fully checked. Preserve every sampled IK candidate and bounded joint/speed
+  constraint. Mobile planning performs configuration checks only, as requested;
+  stationary and other planners retain their collision policies.
+- Select graph-first from a full captured-case comparison: 9.52 s versus 100.19 s
+  for collision-first after common IK generation, with the same optimal arm cost
+  60.77748430022862. Collision checks fall from 108394 to 1319 on this case.
+- Add adapt_offsets=True to the shared GH/offline mobile workflow. Repair failed
+  regions with overlapping quintic blends, 0.10 m proposals and refinement to
+  0.025 m, retaining alternatives until all original targets and joins validate.
+  Scalar offsets remain preferences; False preserves fixed-offset planning.
+  Exact pose/configuration caches are scoped to one unchanged planning scene.
+- Keep configurable 16 TCP-Z rotations, calibrated tool-aware IK, placement and
+  1.75 m arm-origin XY reach checks. No automatic joint-turn expansion, runtime
+  cutoff or extra production FK audit is introduced.
+- Batch calibrated FK/Jacobian evaluation across analytic IK branches, retaining
+  each branch's least-squares refinement, iteration limit and FK acceptance
+  tolerance. Targeted regressions compare scalar/batched branches, Jacobians,
+  singular cases, tilted axes and convergence rejection.
+- Extend the existing research recorder to geometry and calibrated IK boundaries,
+  aggregate mobile metrics, record collision-order evidence and repairs, and mark
+  explicit interruptions. GH exposes readable diagnostics and the run directory.
+  Offline replay includes normal logging and end-to-end timing without saved-path
+  reuse. Document the public-tool recording audit and Slab Net Zero comparison.
+- Validation: 210 tests pass, including eager/lazy cost equivalence, collisions,
+  rotations, movement/speed constraints, repair joins, caching and recording.
+  Before batched IK, the latest capture validated all 1319 targets in 273.90 s,
+  but its fresh-process confirmation took 440.67 s and missed the runtime goal.
+  Final performance acceptance and previous-capture regressions remain pending.
 - Add this version history and require changelog updates with future version bumps.
 
 ## 0.1.30 - 2026-09-17

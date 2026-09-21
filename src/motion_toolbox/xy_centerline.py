@@ -1,7 +1,9 @@
 """Collapse repeated XY traversals to one spatial centerline, without offsets."""
 import numpy as np
+from .recording import recorded
 
 
+@recorded
 def centerline_xy(points, stations=201, bins=100, smoothing_fraction=.08):
     """Average only perpendicular to the dominant XY principal axis.
 

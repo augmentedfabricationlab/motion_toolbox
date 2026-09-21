@@ -171,7 +171,7 @@ Environment and tool bodies use explicit distance queries; their automatic conta
 generation is disabled to avoid computing those contacts again during robot self
 checks. This changes query scheduling, not which geometry can reject a pose.
 
-## Mobile base proposal and validation
+## Adaptive mobile base planning
 
 Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
@@ -181,16 +181,28 @@ headings, offsets **each pass** 0.9 m normal and 1.2 m tangentially, and validat
 one upright ground base plane per original TCP. By default it samples 16
 rotations (22.5-degree spacing) around each TCP local Z axis, keeping its position
 and extrusion direction fixed. `rotation_steps=1` restores fixed orientation.
-A connected trajectory selects among all sampled orientations;
+The exact shortest arm trajectory for the selected base path is found among all sampled orientations;
 `selected_target_planes` and `selected_tcp_rotations` (radians) report the
 chosen orientations only when the complete path validates.
 
 It checks calibrated arm-origin XY reach (1.75 m), negative target-Z placement,
 base-body collisions, real calibrated IK, joint limits, robot/tool/environment
-collisions, base translation/yaw steps and joint continuity with sampled swept
-collisions. Optional speed limits require `time_intervals`. No offset search or
-constraint relaxation is performed when the proposal fails. Sampled collisions
-are resolution-dependent, not a continuous collision-free proof.
+collisions at every original target, base translation/yaw steps and joint continuity.
+Transitions are **not collision-checked** (`check_edges=False` in results).
+Optional speed limits require `time_intervals`.
+
+`adapt_offsets=True` treats the supplied offsets as preferences. Failures trigger
+local offset searches with overlapping, expanding intervals, 0.10 m coarse spacing
+and refinement to 0.025 m. Quintic ramps retain smooth joins; all original targets
+and movement constraints are checked after anchor screening. Failed sampled repair
+searches do not prove that no continuous solution exists. `adapt_offsets=False`
+keeps the original fixed-offset behavior.
+
+The production strategy is graph-first, chosen by a full-case comparison on the
+20260921 capture: 9.52 s for graph/configuration validation versus 100.19 s when
+checking all candidates first, excluding common IK and setup. Both returned the
+same optimal cost. Colliding graph nodes are removed and the exact graph is solved
+again. There is no collision-order mode or adaptive strategy switching.
 
 `base_planes` and `base_path` remain visible on a failed proposal. Only `valid`
 (or `result['fabrication_validated']`) indicates a complete validated path;
@@ -198,6 +210,9 @@ are resolution-dependent, not a continuous collision-free proof.
 per-target rejection categories, collision pairs when available, placement
 measurements and disconnected transitions. `target_indices` preserves input
 order; `averaged_line` and `centerline` expose the geometric stages.
+`applied_offsets` reports normal/tangential offsets in metres, `repair_attempts`
+records repair decisions, and `research_run` locates the structured research record.
+Unused candidate collisions are explicitly untested, not labeled collision-free.
 
 Input geometry defaults to metres, matching the captured cases, regardless of
 Rhino's document units. Set `model_units_to_metres` or
@@ -207,7 +222,8 @@ Rhino's document units. Set `model_units_to_metres` or
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling
-collision/edge checking are rejected explicitly.
+configuration collision checking are rejected explicitly. Legacy `check_edges` inputs
+do not enable swept checks in the mobile component.
 
 The component, shared planning APIs and offline replay have no runtime timeout.
 An optional current pose describes the arm at the first proposed base; approach
@@ -221,7 +237,9 @@ python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --rotat
 
 The harness verifies READY and every manifest hash, restores captured URDF,
 calibration, tool/body/environment collisions, fixed joints and allowed pairs,
-and records detailed results. Captures and trial outputs stay outside Git.
+and records results with normal research logging. End-to-end timings include process
+startup and setup; `--fixed-offsets` disables repairs for comparison. Captures and
+trial outputs stay outside Git.
 The geometry-only modules (`xy_averaging`, `xy_smoothing`, `xy_centerline`,
 `xy_offset`) and their plotting scripts remain available for experimentation.
 

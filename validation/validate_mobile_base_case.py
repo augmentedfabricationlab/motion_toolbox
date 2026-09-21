@@ -1,4 +1,4 @@
-"""Validate the single geometric base proposal offline, without a runtime limit."""
+"""Replay captured adaptive mobile planning offline, without a runtime limit."""
 import argparse
 import hashlib
 import json
@@ -61,48 +61,75 @@ def main():
     parser.add_argument('case',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--rotation-steps',type=int,default=16)
+    parser.add_argument('--fixed-offsets',action='store_true')
     parser.add_argument('--worker',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     if not args.worker:
+        started=time.perf_counter()
+        command=[sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker']
+        if args.fixed_offsets:command.append('--fixed-offsets')
         with (args.output/'worker.log').open('w') as log:
-            run=subprocess.run([sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker'],stdout=log,stderr=subprocess.STDOUT)
+            run=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
+        if run.returncode==0:
+            path=args.output/'result.json'
+            result=json.loads(path.read_text())
+            result['run']['end_to_end_seconds']=time.perf_counter()-started
+            path.write_text(json.dumps(result,indent=2))
+            print(result['status'],result['run']['end_to_end_seconds'],flush=True)
         raise SystemExit(run.returncode)
-    os.environ['TOOLBOX_RECORDING']='0'
     import numpy as np
+    import sqlite3
     from motion_toolbox.geometry import Plane,as_plane
-    from motion_toolbox.mobile_base_workflow import generate_base_path,validate_base_path
+    from motion_toolbox.mobile_base_workflow import plan_base_path
+    from motion_toolbox.recording import ResearchRun,recorded,event
     from motion_toolbox import __version__
     import motion_toolbox.mobile_base_workflow as module
     start=time.perf_counter();cpu=time.process_time()
-    data=load_case(args.case);r=data['replay']
-    targets=[as_plane(t) for t in r['targets']]
-    print('Verified capture',len(targets),'targets',flush=True)
-    result=generate_base_path(targets)
-    print('Generated proposal',flush=True)
-    solver,world=setup(args.case,r,calibrated=True)
+    case_hash=hashlib.sha256((args.case/'case.json').read_bytes()).hexdigest()
     def progress(message):
         (args.output/'progress.json').write_text(json.dumps(message,indent=2))
         print(json.dumps(message),flush=True)
-    with world:
-        result.update(validate_base_path(targets,result['base_planes'],solver=solver,world=world,
-            joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
-            progress=progress,rotation_steps=args.rotation_steps,max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
-            **{k:v for k,v in r.get('mobile_options',{}).items() if k in
-               ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')}))
-    result['run']=dict(case_sha256=hashlib.sha256((args.case/'case.json').read_bytes()).hexdigest(),
-        version=__version__,source_sha256=hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),
-        python=sys.version,executable=sys.executable,
-        source_hashes={str(p.relative_to(Path(module.__file__).parent)):hashlib.sha256(p.read_bytes()).hexdigest()
-                       for p in Path(module.__file__).parent.rglob('*.py')},
-        elapsed_seconds=time.perf_counter()-start,cpu_seconds=time.process_time()-cpu,
-        collision_options=r['collision_options'],arm_in_base=r['arm_in_base'],tcp_in_flange=r['tcp_in_flange'],
-        fixed_joint_values=r['fixed_joint_values'])
+    @recorded
+    def execute():
+        data=load_case(args.case);r=data['replay']
+        event('capture.verified',case_sha256=case_hash,targets=len(r['targets']),
+              calibration=dict(arm_in_base=r['arm_in_base'],tcp_in_flange=r['tcp_in_flange']),
+              collision_options=r['collision_options'],fixed_joint_values=r['fixed_joint_values'])
+        targets=[as_plane(t) for t in r['targets']]
+        tick=time.perf_counter()
+        solver,world=setup(args.case,r,calibrated=True)
+        setup_seconds=time.perf_counter()-tick
+        with world:
+            result=plan_base_path(targets,solver=solver,world=world,
+                joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
+                progress=progress,adapt_offsets=not args.fixed_offsets,rotation_steps=args.rotation_steps,
+                max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
+                **{k:v for k,v in r.get('mobile_options',{}).items() if k in
+                   ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')})
+        result['timings']['setup_seconds']=setup_seconds
+        result['run']=dict(case_sha256=case_hash,version=__version__,
+            source_sha256=hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),
+            python=sys.version,executable=sys.executable,
+            source_hashes={str(p.relative_to(Path(module.__file__).parent)):hashlib.sha256(p.read_bytes()).hexdigest()
+                           for p in Path(module.__file__).parent.rglob('*.py')},
+            collision_options=r['collision_options'],arm_in_base=r['arm_in_base'],tcp_in_flange=r['tcp_in_flange'],
+            fixed_joint_values=r['fixed_joint_values'],normal_recording=True)
+        return result
+    with ResearchRun(args.output/'research',name='mobile capture replay',
+                     config=dict(case=str(args.case),case_sha256=case_hash,rotation_steps=args.rotation_steps,
+                                 adapt_offsets=not args.fixed_offsets,check_edges=False)) as run:
+        result=execute()
+    result['research_run']=str(run.path)
+    with sqlite3.connect(str(run.path/'run.sqlite3')) as db:
+        result['timings']['recording_overhead_seconds']=db.execute(
+            "SELECT COALESCE(SUM(value),0)/1e9 FROM metrics WHERE name='recording_overhead'").fetchone()[0]
+    result['run'].update(elapsed_seconds=time.perf_counter()-start,cpu_seconds=time.process_time()-cpu)
     def encode(x):
         if isinstance(x,Plane):return x.to_dict()
         if isinstance(x,np.ndarray):return x.tolist()
         if isinstance(x,np.generic):return x.item()
         raise TypeError(type(x).__name__)
-    (args.output/'result.json').write_text(json.dumps(result,default=encode,indent=2))
+    (args.output/'result.json').write_text(json.dumps(result,default=encode,indent=2,allow_nan=False))
     print(result['status'],result['state_counts'],result['run']['elapsed_seconds'],flush=True)
 
 if __name__=='__main__':main()

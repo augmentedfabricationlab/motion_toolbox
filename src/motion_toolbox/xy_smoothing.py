@@ -1,9 +1,11 @@
 """Ordered XY curve smoothing with a per-target deviation bound; no robot model."""
 import numpy as np
+from .recording import recorded
 
 from .xy_averaging import moving_average_xy, line_length
 
 
+@recorded
 def smooth_xy(points, max_deviation, curvature_weight=100., max_iterations=60000,
               tolerance=1e-5):
     """Minimize squared steps + weighted squared second differences inside disks.
@@ -75,6 +77,7 @@ def smooth_xy(points, max_deviation, curvature_weight=100., max_iterations=60000
                 curvature_energy=float(np.sum(np.diff(curve, n=2, axis=0)**2)))
 
 
+@recorded
 def significant_reversals(values, excursion):
     """Hysteresis extrema: only confirm a turn after the specified excursion.
 
