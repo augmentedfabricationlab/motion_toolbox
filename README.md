@@ -219,6 +219,11 @@ Rhino's document units. Set `model_units_to_metres` or
 `units_to_metres` to 0.001 for millimetre-valued geometry. Component geometric inputs are model units:
 `max_xy_deviation` defaults to 0.25 m, `normal_offset` to 0.9 m,
 `tangent_offset` to 1.2 m and `max_base_step` to 0.25 m after unit conversion.
+Add an Item input named `base_yaw_degrees` and connect a Number Slider (suggested
+range -180 to 180, default 0). Positive angles rotate the base counterclockwise
+viewed from above, at each base origin, with Z upright. Offset directions remain
+relative to the centerline. IK, placement and collision checks use the rotated
+base orientations, including during adaptive repairs.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling

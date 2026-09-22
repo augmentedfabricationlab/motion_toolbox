@@ -155,7 +155,7 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     monkeypatch.setattr(ur,'inverse_kinematics',stale)
     monkeypatch.setattr(solver_module,'inverse_kinematics',stale)
     out=runpy.run_path(str(path),init_globals=dict(robot=robot,target_planes=targets,
-        arm_joint_names=names,max_xy_deviation=.02))
+        arm_joint_names=names,max_xy_deviation=.02,base_yaw_degrees=15.))
     assert len(out['base_planes'])==3,out['status']
     assert out['target_indices']==[0,1,2]
     assert not out['valid'] and not out['configurations']
@@ -167,4 +167,5 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     settings=json.loads(out['diagnostics'][0])
     assert settings['units_to_metres']==1
     assert settings['rotation_steps']==16
+    assert settings['base_yaw_degrees']==15.
     assert settings['first_target']['origin'][2]==10

@@ -249,9 +249,20 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 @recorded
 @high_qos
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
-                   max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2, **limits):
+                   max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2,
+                   base_yaw_degrees=0., **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
     from .mobile_adaptation import repair_offsets
+    base_yaw_degrees = float(base_yaw_degrees)
+    if not math.isfinite(base_yaw_degrees):
+        raise ValueError('base_yaw_degrees must be finite')
+    angle = math.radians(base_yaw_degrees % 360.)
+    c, s = math.cos(angle), math.sin(angle)
+    def orient(bases):
+        # Rotate at each origin; keep offset repairs in the centerline axes.
+        if angle == 0.:
+            return bases
+        return [Plane(b.origin, c*b.xaxis+s*b.yaxis, -s*b.xaxis+c*b.yaxis) for b in bases]
     started = perf_counter()
     targets = [as_plane(t) for t in targets]
     tick = perf_counter()
@@ -261,7 +272,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     cache = {}
     totals = Counter()
     def validate(bases):
-        result = validate_base_path(targets,bases,solver=solver,world=world,joint_ranges=joint_ranges,
+        result = validate_base_path(targets,orient(bases),solver=solver,world=world,joint_ranges=joint_ranges,
                                    periodic=periodic,_cache=cache,**limits)
         totals.update(result['timings'])
         return result
@@ -275,7 +286,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
                        ('rotation_steps','max_reach_xy','collision_options','cancel_check')}
             # Anchor tests are individual placement checks, not transitions over
             # skipped TCPs. Full original-index connectivity is checked afterward.
-            for i,b in zip(indices,bases):
+            for i,b in zip(indices,orient(bases)):
                 p = validate_base_path([targets[i]],[b],solver=solver,world=world,
                     joint_ranges=joint_ranges,periodic=periodic,_cache=cache,**options)
                 totals.update(p['timings'])
@@ -290,7 +301,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         repair_seconds = perf_counter()-tick
     if tangent_offset < 0:applied[:,1] *= -1
     proposal.update(result)
-    proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets))
+    proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets),
+                    base_yaw_degrees=base_yaw_degrees)
     proposal['timings'] = dict(totals,geometry_seconds=geometry_seconds,repair_seconds=repair_seconds,
                               planning_seconds=perf_counter()-started)
     if attempts and not result['fabrication_validated']:
@@ -364,6 +376,7 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
     proposal['configuration_objects']=[configuration_from_values([dict(fixed,**dict(zip(names,q)))[n] for n in output_names],output_names,[joints[n].type for n in output_names]) for q in proposal['configurations']]
     proposal.update(arm_in_base=solver.arm_in_base,fixed_joint_values=fixed,mounting_source=solver.mounting_source)
     proposal['effective_settings']=dict(units_to_metres=units_to_metres,
+        base_yaw_degrees=proposal['base_yaw_degrees'],
         rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
         tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),

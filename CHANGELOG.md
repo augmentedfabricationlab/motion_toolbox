@@ -4,6 +4,17 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.33 - 2026-09-22
+
+- Add GH Number Slider input `base_yaw_degrees` (default 0): rotate base
+  orientations counterclockwise about upright Z at their own origins before
+  calibrated IK, placement and collision validation. Adaptive repairs retain
+  centerline-relative offset directions and validate the requested yaw.
+- Include the requested angle in results and readable effective settings.
+  Validate nonzero positive/negative yaw through collision repair and GH input
+  forwarding. Existing zero-angle behavior is preserved.
+- Validation: 43 mobile workflow, adaptive repair and GH entry-point tests pass.
+
 ## 0.1.32 - 2026-09-21
 
 - Request Windows HighQoS only on the mobile planning thread for the duration of
