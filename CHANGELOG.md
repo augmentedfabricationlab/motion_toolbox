@@ -4,6 +4,14 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.35 - 2026-09-22
+
+- Increase the preferred normal base offset from 0.9 m to 1.0 m in the shared
+  mobile planner and GH component. The tangential default remains 1.3 m;
+  explicit inputs override both defaults. Prior capture results used 0.9 m.
+- Validation: 43 mobile and GH regression tests pass; full captures were not
+  rerun for this default adjustment.
+
 ## 0.1.34 - 2026-09-22
 
 - Increase the preferred tangential base offset from 1.2 m to 1.3 m in the

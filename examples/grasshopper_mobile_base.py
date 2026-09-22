@@ -7,7 +7,7 @@ Optional inputs:
     Set 0.001 explicitly for millimetre-valued input geometry.
   max_xy_deviation: model units, default 0.25 m converted to model units.
   adapt_offsets: default True; repair infeasible offsets smoothly.
-  normal_offset, tangent_offset: model units, defaults 0.9 m and 1.3 m.
+  normal_offset, tangent_offset: model units, defaults 1.0 m and 1.3 m.
   base_yaw_degrees: Item / Number slider, default 0; rotate base orientation
     at its origin about upright Z. Positive is counterclockwise from above.
   current_pose: optional six arm radians or named Configuration at first base.
@@ -54,7 +54,7 @@ selected_target_planes,selected_tcp_rotations=[],[]
 applied_offsets,repair_attempts,research_run=[],[],None
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.34'
+version='0.1.35'
 started=time.monotonic()
 
 try:
@@ -89,7 +89,7 @@ try:
     result=plan_mobile_base(_input('robot'),list(_input('target_planes',[])),units_to_metres=scale,
         adapt_offsets=bool(_input('adapt_offsets',True)),progress=_progress,
         max_xy_deviation=float(_input('max_xy_deviation',.25/scale))*scale,
-        normal_offset=float(_input('normal_offset',.9/scale))*scale,
+        normal_offset=float(_input('normal_offset',1.0/scale))*scale,
         tangent_offset=float(_input('tangent_offset',1.3/scale))*scale,
         base_yaw_degrees=float(_input('base_yaw_degrees',0.)),
         current_pose=_input('current_pose'),arm_in_base=_input('arm_in_base'),
