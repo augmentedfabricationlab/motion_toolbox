@@ -228,6 +228,8 @@ checks remain authoritative.
 Restoring GPS or other accessories requires detailed mode; cover mode intentionally
 omits them. Previously validated detailed-model paths must be revalidated for the
 cover: 85 configurations in today's old trajectory overlap the enlarged chassis.
+The new cover-aware replay validates all 1,481 targets as a connected trajectory;
+see the [cover model validation report](docs/cover-collision-validation-20260922.md).
 Preliminary checks skip empty frame links. On 1,481 identical cover-model poses,
 three matched trials reduced base-check time by 14–38% with unchanged decisions
 and failure reasons; this is a base-check measurement, not total planning time.

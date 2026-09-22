@@ -30,8 +30,10 @@ not evidence of a published release. Commit references identify the source.
 - Preliminary checks now skip links with no collision shapes. Three matched
   1,481-pose trials with the same cover model return identical decisions/reasons
   and reduce base-check time by 14–38%. This does not claim an end-to-end speedup.
-- Validation: all 252 tests pass. The cover-aware full trajectory replay is
-  tracked separately from the earlier detailed-model acceptance.
+- Validation: all 252 tests pass. A new cover-aware replay validates all 1,481
+  targets in one connected trajectory (observed runtime 17m 20s). A separate
+  fresh-world check with committed code confirms every final configuration.
+  See docs/cover-collision-validation-20260922.md for timing/provenance details.
 
 ## 0.1.37 - 2026-09-22
 

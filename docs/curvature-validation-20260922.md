@@ -4,6 +4,8 @@ These results describe version **0.1.37**, using detailed base geometry with GPS
 excluded. Version 0.1.38 introduces chassis/lift cover boxes; this changes the
 physical collision model and requires new validation. In particular, 85 of the
 old curved trajectory's configurations overlap the enlarged chassis box.
+The [cover-model replay](cover-collision-validation-20260922.md) validates a new
+trajectory using the enlarged bodies.
 
 The curved 1,481-target capture produces a fully validated connected trajectory
 with automatic arc geometry and adaptive offsets. All three earlier captures
