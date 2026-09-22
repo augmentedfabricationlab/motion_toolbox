@@ -10,7 +10,7 @@ import numpy as np
 from .geometry import Plane, as_plane
 
 
-COLLISION_API_VERSION = 10
+COLLISION_API_VERSION = 11
 
 
 def _validate_urdf(path):
@@ -46,7 +46,7 @@ class PybulletServer:
     @recorded
     def __init__(self, urdf_path=None, *, robot=None, gui=False, joint_names=None,
                  allowed_pairs=(), package_paths=None, asset_root=None, base=None,
-                 check_static_self_collisions=True):
+                 check_static_self_collisions=True, excluded_collision_links=(), exclude_gps=False):
         from pybullet_utils.bullet_client import BulletClient
         import pybullet as p
         self.p = BulletClient(connection_mode=p.GUI if gui else p.DIRECT)
@@ -59,6 +59,8 @@ class PybulletServer:
         self.links = {}
         self.allowed_pairs = {frozenset(pair) for pair in allowed_pairs}
         self.check_static_self_collisions = check_static_self_collisions
+        self.excluded_collision_links = set(excluded_collision_links)
+        self.exclude_gps = bool(exclude_gps)
         semantics = getattr(robot, 'semantics', None)
         self.allowed_pairs.update(frozenset(pair) for pair in getattr(semantics, 'disabled_collisions', ()))
         try:
@@ -88,7 +90,28 @@ class PybulletServer:
             raise FileNotFoundError(path)
         p = self.p
         try:
-            _validate_urdf(path)
+            root = _validate_urdf(path)
+            names = {link.get('name') for link in root.findall('link')}
+            if self.excluded_collision_links-names:
+                raise ValueError('Unknown excluded collision links: '+str(self.excluded_collision_links-names))
+            if self.exclude_gps:
+                self.excluded_collision_links.update(name for name in names
+                    if name in ('gps_base_link', 'gps_link') or name.endswith(('_gps_base_link', '_gps_link')))
+            if self.excluded_collision_links:
+                # Keep all frames/joints and assets. Only the temporary collision
+                # world's URDF omits absent hardware, including self/tool checks.
+                for link in root.findall('link'):
+                    if link.get('name') in self.excluded_collision_links:
+                        for collision in link.findall('collision'):
+                            link.remove(collision)
+                for mesh in root.iter('mesh'):
+                    filename = Path(mesh.get('filename'))
+                    if not filename.is_absolute():
+                        mesh.set('filename', (path.parent/filename).resolve().as_posix())
+                filtered = Path(self._temporary.name)/'filtered_collision.urdf'
+                ET.ElementTree(root).write(filtered, encoding='utf-8', xml_declaration=True)
+                path = filtered
+                event('collision.exclusions', links=sorted(self.excluded_collision_links), exclude_gps=self.exclude_gps)
             self.robot = p.loadURDF(path.as_posix(), useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
         except Exception as error:
             diagnostic_path = path

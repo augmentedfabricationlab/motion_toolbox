@@ -31,7 +31,8 @@ def setup(folder, replay, calibrated=False):
     settings = replay['collision_options']
     world = PybulletServer(Path(folder) / 'robot/robot.urdf',
         joint_names=replay['arm_joint_names'],
-        **{k: settings[k] for k in ('allowed_pairs', 'check_static_self_collisions') if k in settings})
+        exclude_gps=settings.get('exclude_gps',True),
+        **{k: settings[k] for k in ('allowed_pairs', 'check_static_self_collisions','excluded_collision_links') if k in settings})
     try:
         world.set_fixed_joints(replay['fixed_joint_values'])
         for mesh in replay['environment_meshes']:
@@ -62,11 +63,21 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--rotation-steps',type=int,default=16)
     parser.add_argument('--fixed-offsets',action='store_true')
+    parser.add_argument('--geometry-mode',choices=('auto','legacy'),default='auto')
+    parser.add_argument('--geometry-options',type=json.loads,default={})
+    parser.add_argument('--normal-offset',type=float,default=1.0)
+    parser.add_argument('--tangent-offset',type=float,default=1.3)
+    parser.add_argument('--base-yaw-degrees',type=float,default=0.)
+    parser.add_argument('--include-gps',action='store_true')
     parser.add_argument('--worker',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     if not args.worker:
         started=time.perf_counter()
         command=[sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker']
+        command += ['--geometry-mode',args.geometry_mode,'--geometry-options',json.dumps(args.geometry_options),
+                    '--normal-offset',str(args.normal_offset),'--tangent-offset',str(args.tangent_offset),
+                    '--base-yaw-degrees',str(args.base_yaw_degrees)]
+        if args.include_gps:command.append('--include-gps')
         if args.fixed_offsets:command.append('--fixed-offsets')
         with (args.output/'worker.log').open('w') as log:
             run=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
@@ -94,6 +105,7 @@ def main():
     @high_qos
     def execute():
         data=load_case(args.case);r=data['replay']
+        r['collision_options']['exclude_gps']=not args.include_gps
         event('capture.verified',case_sha256=case_hash,targets=len(r['targets']),
               calibration=dict(arm_in_base=r['arm_in_base'],tcp_in_flange=r['tcp_in_flange']),
               collision_options=r['collision_options'],fixed_joint_values=r['fixed_joint_values'])
@@ -105,9 +117,12 @@ def main():
             result=plan_base_path(targets,solver=solver,world=world,
                 joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
                 progress=progress,adapt_offsets=not args.fixed_offsets,rotation_steps=args.rotation_steps,
+                geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
+                normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,base_yaw_degrees=args.base_yaw_degrees,
                 max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
                 **{k:v for k,v in r.get('mobile_options',{}).items() if k in
                    ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')})
+            result['excluded_collision_links']=sorted(world.excluded_collision_links)
         result['timings']['setup_seconds']=setup_seconds
         result['run']=dict(case_sha256=case_hash,version=__version__,
             source_sha256=hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),

@@ -48,7 +48,7 @@ def repair_anchors(targets, first, last):
 
 @recorded
 def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
-                   tangent_offset, search_extent, cancel_check=None):
+                   tangent_offset, search_extent, cancel_check=None, build_frames=None):
     """Beam of connected full-path repairs with overlapping, expanding windows.
 
     The finite grid and retained alternatives are a search domain, not a proof
@@ -65,8 +65,16 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
     beam = [(np.zeros((n, 2)), initial)]
     seen = {beam[0][0].tobytes()}
     def frames(offsets):
+        if build_frames is not None:
+            return build_frames((preferred+offsets)*[1., side])
         xyz = origins-offsets[:,0,None]*axes_x+side*offsets[:,1,None]*axes_y
         return [Plane(o,x,y) for o,x,y in zip(xyz, axes_x, axes_y)]
+    def single_frame(index, absolute):
+        if build_frames is not None:
+            return build_frames(np.asarray(absolute)*[1.,side], [index])[0]
+        q = absolute-preferred
+        return Plane(origins[index]-q[0]*axes_x[index]+side*q[1]*axes_y[index],
+                     axes_x[index], axes_y[index])
     def cost(offsets):
         return float(np.mean(offsets**2)+10*np.sum(np.diff(offsets,axis=0)**2)
                      +100*np.sum(np.diff(offsets,n=2,axis=0)**2))
@@ -100,8 +108,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                 correction = pair-preferred-offsets[first]
                 if np.linalg.norm(correction) < 1e-10:
                     continue
-                candidate = Plane(origins[first]-(offsets[first,0]+correction[0])*axes_x[first]
-                                  +side*(offsets[first,1]+correction[1])*axes_y[first], axes_x[first], axes_y[first])
+                candidate = single_frame(first, pair)
                 if probe([first], [candidate]):
                     viable.append(pair)
                     if len(viable) == 4:
@@ -115,8 +122,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     for p in neighborhood:
                         if p[0] <= 0 or p[1] < 0 or np.any(p > search_extent):
                             continue
-                        q = p-preferred
-                        b = Plane(origins[first]-q[0]*axes_x[first]+side*q[1]*axes_y[first], axes_x[first], axes_y[first])
+                        b = single_frame(first, p)
                         if probe([first], [b]):
                             refined.append(p)
                             break

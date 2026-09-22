@@ -20,16 +20,22 @@ from .graph import shortest_path
 
 
 @recorded
-def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3):
+def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
+                       geometry_mode='auto', geometry_options=None, _geometry_out=None):
+    from .xy_sections import prepare_sections
     targets = [as_plane(t) for t in targets]
     smoothing = smooth_xy([t.origin for t in targets], max_xy_deviation)
     guide = centerline_xy(smoothing['curve'])
     frames = centerline_offset_frames(guide['curve'], guide['mapped_points'],
         [t.xaxis for t in targets], [t.yaxis for t in targets],
         x_offset=-normal_offset, y_offset=tangent_offset, pass_points=smoothing['curve'])
-    bases = [Plane(o,x,y) for o,x,y in zip(frames['origins'],frames['x_axes'],frames['y_axes'])]
+    geometry, diagnostics = prepare_sections([t.origin for t in targets], smoothing['curve'], guide,
+        frames, mode=geometry_mode, options=geometry_options)
+    bases = geometry.frames([normal_offset, tangent_offset])
+    if _geometry_out is not None:
+        _geometry_out.append(geometry)
     return dict(base_planes=bases, smoothing=smoothing, centerline=guide,
-                target_indices=list(range(len(targets))))
+                target_indices=list(range(len(targets))), **diagnostics)
 
 
 @recorded
@@ -250,7 +256,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 @high_qos
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
                    max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
-                   base_yaw_degrees=0., **limits):
+                   base_yaw_degrees=0., geometry_mode='auto', geometry_options=None, **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
     from .mobile_adaptation import repair_offsets
     base_yaw_degrees = float(base_yaw_degrees)
@@ -266,8 +272,13 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     started = perf_counter()
     targets = [as_plane(t) for t in targets]
     tick = perf_counter()
+    prepared = []
     proposal = generate_base_path(targets,max_xy_deviation=max_xy_deviation,
-                                  normal_offset=normal_offset,tangent_offset=tangent_offset)
+        normal_offset=normal_offset,tangent_offset=tangent_offset, geometry_mode=geometry_mode,
+        geometry_options=geometry_options, _geometry_out=prepared)
+    if proposal.get('unresolved_sections'):
+        raise ValueError('Unresolved strong curvature in sections '+str(proposal['unresolved_sections'])+
+                         '; inspect generate_base_path diagnostics or adjust geometry_options')
     geometry_seconds = perf_counter()-tick
     cache = {}
     totals = Counter()
@@ -297,7 +308,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         extent = limits.get('max_reach_xy',1.75)+np.linalg.norm(solver.arm_in_base.origin[:2])+max_xy_deviation
         result,applied,attempts = repair_offsets(targets,proposal['base_planes'],result,
             validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
-            search_extent=float(extent),cancel_check=limits.get('cancel_check'))
+            search_extent=float(extent),cancel_check=limits.get('cancel_check'),
+            build_frames=prepared[0].frames if prepared else None)
         repair_seconds = perf_counter()-tick
     if tangent_offset < 0:applied[:,1] *= -1
     proposal.update(result)
@@ -310,7 +322,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     run = current_run()
     proposal['research_run'] = str(run.path) if run is not None else None
     event('mobile.plan_result',valid=result['fabrication_validated'],targets=len(targets),
-          repair_attempts=len(attempts),timings=proposal['timings'])
+          repair_attempts=len(attempts),timings=proposal['timings'],
+          geometry_mode=geometry_mode,path_sections=proposal.get('path_sections',[]))
     return proposal
 
 
@@ -352,7 +365,7 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
     ranges=json_input(joint_ranges)
     if ranges is None: ranges=[([joints[n].limit.lower,joints[n].limit.upper] if joints[n].limit is not None and joints[n].type!=1 else None) for n in names]
     options=dict(json_input(collision_options,{}))
-    allowed={'gui','allowed_pairs','package_paths','asset_root','ground_z','support_links','joint_resolution','base_resolution','yaw_resolution','clearance','check_static_self_collisions'}
+    allowed={'gui','allowed_pairs','package_paths','asset_root','ground_z','support_links','joint_resolution','base_resolution','yaw_resolution','clearance','check_static_self_collisions','exclude_gps','excluded_collision_links'}
     if set(options)-allowed: raise ValueError('Unknown collision options: '+str(set(options)-allowed))
     with ExitStack() as stack:
         if scene is not None:
@@ -360,8 +373,9 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
             world=scene
             if list(world.joint_names)!=names: raise ValueError('Collision scene joint order differs')
         else:
-            constructor={k:options[k] for k in ('gui','allowed_pairs','package_paths','asset_root','check_static_self_collisions') if k in options}
+            constructor={k:options[k] for k in ('gui','allowed_pairs','package_paths','asset_root','check_static_self_collisions','exclude_gps','excluded_collision_links') if k in options}
             constructor.setdefault('check_static_self_collisions',False)
+            constructor.setdefault('exclude_gps',True)
             world=stack.enter_context(PybulletServer(robot=robot,joint_names=names,**constructor))
             for mesh in collision_meshes: world.add_mesh(mesh,scale=units_to_metres)
             if 'ground_z' in options: world.add_ground(options['ground_z'],support_links=options.get('support_links',()))
@@ -371,11 +385,14 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
             periodic=[joints[n].type==1 for n in names],current_pose=start,collision_options=options,
             adapt_offsets=adapt_offsets,max_xy_deviation=max_xy_deviation,normal_offset=normal_offset,
             tangent_offset=tangent_offset,cancel_check=cancel_check,**limits)
+        proposal['excluded_collision_links'] = sorted(getattr(world,'excluded_collision_links',()))
     proposal['timings']['setup_seconds']=setup_seconds
     output_names=[n for n,j in joints.items() if j.type==2 and n not in names]+names
     proposal['configuration_objects']=[configuration_from_values([dict(fixed,**dict(zip(names,q)))[n] for n in output_names],output_names,[joints[n].type for n in output_names]) for q in proposal['configurations']]
     proposal.update(arm_in_base=solver.arm_in_base,fixed_joint_values=fixed,mounting_source=solver.mounting_source)
     proposal['effective_settings']=dict(units_to_metres=units_to_metres,
+        geometry_mode=proposal.get('geometry_mode','auto'), geometry_options=proposal.get('geometry_options',{}),
+        excluded_collision_links=proposal['excluded_collision_links'],
         base_yaw_degrees=proposal['base_yaw_degrees'],
         rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),

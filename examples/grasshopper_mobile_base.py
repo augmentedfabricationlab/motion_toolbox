@@ -8,6 +8,8 @@ Optional inputs:
   max_xy_deviation: model units, default 0.25 m converted to model units.
   adapt_offsets: default True; repair infeasible offsets smoothly.
   normal_offset, tangent_offset: model units, defaults 1.0 m and 1.3 m.
+  geometry_mode: auto (default) or legacy; auto uses radial offsets on arcs.
+  geometry_options: JSON thresholds in metres/degrees (see README).
   base_yaw_degrees: Item / Number slider, default 0; rotate base orientation
     at its origin about upright Z. Positive is counterclockwise from above.
   current_pose: optional six arm radians or named Configuration at first base.
@@ -52,9 +54,10 @@ result,path_cost=None,None
 valid=False
 selected_target_planes,selected_tcp_rotations=[],[]
 applied_offsets,repair_attempts,research_run=[],[],None
+path_sections,section_ids,transition_regions=[],[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.35'
+version='0.1.36'
 started=time.monotonic()
 
 try:
@@ -71,7 +74,7 @@ try:
     # consumers, including their from-import bindings to older solver functions.
     for module_name in ('kinematics.ur','kinematics.solver','kinematics.calibrated',
                         'graph','planning','robot_adapter','collision','robot_planning',
-                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','execution','mobile_adaptation','mobile_base_workflow'):
+                        'xy_averaging','xy_smoothing','xy_centerline','xy_offset','xy_sections','execution','mobile_adaptation','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base
     from motion_toolbox.robot_planning import json_input
@@ -91,6 +94,7 @@ try:
         max_xy_deviation=float(_input('max_xy_deviation',.25/scale))*scale,
         normal_offset=float(_input('normal_offset',1.0/scale))*scale,
         tangent_offset=float(_input('tangent_offset',1.3/scale))*scale,
+        geometry_mode=_input('geometry_mode','auto'),geometry_options=json_input(_input('geometry_options'),{}),
         base_yaw_degrees=float(_input('base_yaw_degrees',0.)),
         current_pose=_input('current_pose'),arm_in_base=_input('arm_in_base'),
         arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
@@ -114,6 +118,9 @@ try:
     selected_tcp_rotations=result['selected_tcp_rotations']
     applied_offsets=result['applied_offsets'].tolist()
     repair_attempts=result['repair_attempts']
+    path_sections=result.get('path_sections',[])
+    section_ids=result.get('section_ids',[])
+    transition_regions=result.get('transition_regions',[])
     research_run=result['research_run']
     path_cost=result['path_length']
     status=result['status']
@@ -138,6 +145,7 @@ try:
     for i,q in enumerate(result['configurations']):
         for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
+    path_sections,section_ids,transition_regions=[],[],[]
     applied_offsets,repair_attempts,research_run=[],[],None
     selected_target_planes,selected_tcp_rotations=[],[]
     valid=False

@@ -4,6 +4,20 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.36 - 2026-09-22
+
+- Add automatic straight/arc sections, original-TCP circle fitting with shared
+  centers and separate pass radii, radial displacement and signed arc-distance
+  offsets. Adaptive repairs regenerate arc position and orientation together.
+- Add geometry_mode/options and section diagnostics to numeric planning,
+  Grasshopper and offline replay. Legacy mode retains previous geometry.
+- Mobile collision worlds exclude the unmounted GPS antenna by default;
+  explicit excluded_collision_links and exclude_gps settings retain frames and
+  leave input robot files unchanged. Other collision geometry stays detailed.
+- Validation: 232 tests pass. Geometry-only replay gives identical auto/legacy
+  base poses on all three prior captures and identifies all 19 current passes
+  as arcs. Full current-capture feasibility and shortcut benchmarks are pending.
+
 ## 0.1.35 - 2026-09-22
 
 - User confirmation: the Grasshopper mobile base example now works well for

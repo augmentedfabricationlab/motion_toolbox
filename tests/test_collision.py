@@ -21,6 +21,32 @@ def urdf(tmp_path):
     return path
 
 
+def test_gps_excluded_from_final_collision_without_changing_source_or_frames(tmp_path):
+    text = URDF.replace('</robot>', '''
+<link name="robot_gps_base_link"><collision><geometry><box size=".2 .2 .2"/></geometry></collision></link>
+<joint name="gps_mount" type="fixed"><parent link="base"/><child link="robot_gps_base_link"/><origin xyz="0 1 .5"/></joint>
+</robot>''')
+    path=tmp_path/'gps.urdf'
+    path.write_text(text)
+    obstacle=Plane((0,1,.5),(1,0,0),(0,1,0))
+    with PybulletServer(path) as original:
+        original.add_box([.05]*3,plane=obstacle)
+        assert not original.is_base_valid(Plane.world_xy())
+        assert not original.is_valid([0],Plane.world_xy())
+    with PybulletServer(path,exclude_gps=True) as filtered:
+        assert 'robot_gps_base_link' in filtered.links
+        assert 'robot_gps_base_link' in filtered.excluded_collision_links
+        assert filtered.links['robot_gps_base_link'] not in filtered.collision_links
+        filtered.add_box([.05]*3,plane=obstacle)
+        assert filtered.is_base_valid(Plane.world_xy())
+        assert filtered.is_valid([0],Plane.world_xy())
+        filtered.add_box([.05]*3,plane=Plane((.6,0,0),(1,0,0),(0,1,0)))
+        assert not filtered.is_valid([0],Plane.world_xy())
+    assert path.read_text()==text
+    with pytest.raises(RuntimeError,match='Unknown excluded collision links'):
+        PybulletServer(path,excluded_collision_links=['typo'])
+
+
 @pytest.mark.parametrize('clearance', [0.,.05])
 def test_base_bounds_preserve_collision_results_and_obstacle_movement(urdf,monkeypatch,clearance):
     monkeypatch.setenv('TOOLBOX_RECORDING','0')

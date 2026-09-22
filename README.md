@@ -173,6 +173,35 @@ checks. This changes query scheduling, not which geometry can reject a pose.
 
 ## Adaptive mobile base planning
 
+`geometry_mode="auto"` preserves existing offsets for mostly straight sections
+and uses outward radial offsets for strongly curved sections. Repeated passes
+share an arc center fitted to the original XY TCP positions, with separate
+pass radii. `tangent_offset` is signed distance along the enlarged base circle;
+base +X points toward its center, +Y is tangent, and +Z stays upright. Traversal
+reversals do not flip orientation. The yaw slider still rotates each final frame.
+`geometry_mode="legacy"` selects the previous geometry for comparison.
+
+Optional `geometry_options` (a dictionary, or JSON in Grasshopper) uses metres
+and degrees: `arc_turn_threshold_deg=45`, `arc_fit_rms=0.03`,
+`arc_fit_max=0.075`, `transition_length=0.5`, `reversal_excursion=0.5`.
+Strong sections that cannot be fitted are reported explicitly. The result's
+`path_sections`, `section_ids`, `transition_regions`, and
+`classification_seconds` explain the selection and fitting. Each section's
+inclusive `first`/`last` is its fit interval; `section_ids` assigns unique target
+ownership at shared endpoints. Curved `applied_offsets` are radial/arc distances.
+These settings are also available in the offline replay command through
+`--geometry-mode`, `--geometry-options`, `--normal-offset`, `--tangent-offset`,
+and `--base-yaw-degrees`.
+
+Mobile-created collision worlds omit the absent GPS antenna (`gps_base_link`,
+`gps_link`, including robot-prefixed names) from all collision checks. Frames
+remain intact. `collision_options` accepts `exclude_gps=False` to include it or
+`excluded_collision_links` for additional explicitly absent hardware. Results
+report effective exclusions. External scenes retain their supplied geometry;
+configure their exclusions when creating the scene. Offline replay excludes GPS
+by default; `--include-gps` restores it. Full base/arm/tool 3D configuration
+checks remain authoritative.
+
 Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.
