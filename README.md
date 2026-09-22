@@ -177,7 +177,7 @@ Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.
 The component now generates smooth XY passes, extracts a centerline for
-headings, offsets **each pass** 0.9 m normal and 1.2 m tangentially, and validates
+headings, offsets **each pass** 0.9 m normal and 1.3 m tangentially, and validates
 one upright ground base plane per original TCP. By default it samples 16
 rotations (22.5-degree spacing) around each TCP local Z axis, keeping its position
 and extrusion direction fixed. `rotation_steps=1` restores fixed orientation.
@@ -218,7 +218,7 @@ Input geometry defaults to metres, matching the captured cases, regardless of
 Rhino's document units. Set `model_units_to_metres` or
 `units_to_metres` to 0.001 for millimetre-valued geometry. Component geometric inputs are model units:
 `max_xy_deviation` defaults to 0.25 m, `normal_offset` to 0.9 m,
-`tangent_offset` to 1.2 m and `max_base_step` to 0.25 m after unit conversion.
+`tangent_offset` to 1.3 m and `max_base_step` to 0.25 m after unit conversion.
 Add an Item input named `base_yaw_degrees` and connect a Number Slider (suggested
 range -180 to 180, default 0). Positive angles rotate the base counterclockwise
 viewed from above, at each base origin, with Z upright. Offset directions remain

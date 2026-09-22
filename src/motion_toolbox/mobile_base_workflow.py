@@ -20,7 +20,7 @@ from .graph import shortest_path
 
 
 @recorded
-def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2):
+def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.3):
     targets = [as_plane(t) for t in targets]
     smoothing = smooth_xy([t.origin for t in targets], max_xy_deviation)
     guide = centerline_xy(smoothing['curve'])
@@ -249,7 +249,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 @recorded
 @high_qos
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
-                   max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.2,
+                   max_xy_deviation=.25, normal_offset=.9, tangent_offset=1.3,
                    base_yaw_degrees=0., **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
     from .mobile_adaptation import repair_offsets
@@ -317,7 +317,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
 @recorded
 @high_qos
 def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviation=.25,
-                     normal_offset=.9, tangent_offset=1.2, adapt_offsets=True, current_pose=None, arm_in_base=None,
+                     normal_offset=.9, tangent_offset=1.3, adapt_offsets=True, current_pose=None, arm_in_base=None,
                      arm_joint_names=None, fixed_joint_values=None, joint_ranges=None,
                      collision_meshes=(), collision_options=None, group=None, parameters=None,
                      scene=None, cancel_check=None, **limits):

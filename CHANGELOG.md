@@ -4,6 +4,15 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.34 - 2026-09-22
+
+- Increase the preferred tangential base offset from 1.2 m to 1.3 m in the
+  shared mobile planner and GH component. Explicit input values still override
+  the default; the normal offset remains 0.9 m. Previous captured-case timing
+  and feasibility results describe the former 1.2 m setting.
+- Validation: 43 mobile and GH regression tests pass; full captures were not
+  rerun for this default adjustment.
+
 ## 0.1.33 - 2026-09-22
 
 - Add GH Number Slider input `base_yaw_degrees` (default 0): rotate base
