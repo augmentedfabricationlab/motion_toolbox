@@ -20,8 +20,11 @@ not evidence of a published release. Commit references identify the source.
   Grasshopper and offline replay. No new runtime dependencies.
 - Validation: all 263 tests pass, including both rotation directions, wrapped
   headings, custom hard margins, combined signed arc offsets/yaw, complete
-  configuration checks and yaw-step constraints. Full capture replay is recorded
-  separately from the earlier fixed-yaw acceptance.
+  configuration checks and yaw-step constraints. Today's cover-model capture
+  validates all 1,481 targets with final yaw adjustments within +/-21.25 degrees
+  (observed runtime 7m 50s). Fresh committed-code checks confirm the regenerated
+  poses, hard margin and every final configuration. See
+  docs/adaptive-yaw-validation-20260922.md for provenance and timing limits.
 
 ## 0.1.38 - 2026-09-22
 

@@ -316,6 +316,8 @@ both are relative to the prepared geometric heading, not world compass headings.
 an optional Item input named `base_yaw_margin_degrees` and exposes
 `applied_yaw_adjustments_degrees`; offline replay accepts
 `--base-yaw-margin-degrees 30`.
+The [adaptive-yaw capture replay](docs/adaptive-yaw-validation-20260922.md)
+validates all 1,481 targets with final adjustments between -21.25 and +21.25 degrees.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling
