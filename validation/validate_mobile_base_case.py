@@ -70,6 +70,7 @@ def main():
     parser.add_argument('--normal-offset',type=float,default=1.0)
     parser.add_argument('--tangent-offset',type=float,default=1.3)
     parser.add_argument('--base-yaw-degrees',type=float,default=0.)
+    parser.add_argument('--base-yaw-margin-degrees',type=float,default=30.)
     parser.add_argument('--include-gps',action='store_true')
     parser.add_argument('--base-collision-model',choices=('auto','boxes','detailed'),default='auto')
     parser.add_argument('--base-screening',choices=('none','rectangle','box'),default='none',
@@ -81,7 +82,8 @@ def main():
         command=[sys.executable,__file__,str(args.case),'--output',str(args.output),'--rotation-steps',str(args.rotation_steps),'--worker']
         command += ['--geometry-mode',args.geometry_mode,'--geometry-options',json.dumps(args.geometry_options),
                     '--normal-offset',str(args.normal_offset),'--tangent-offset',str(args.tangent_offset),
-                    '--base-yaw-degrees',str(args.base_yaw_degrees)]
+                    '--base-yaw-degrees',str(args.base_yaw_degrees),
+                    '--base-yaw-margin-degrees',str(args.base_yaw_margin_degrees)]
         if args.include_gps:command.append('--include-gps')
         command += ['--base-screening',args.base_screening,'--base-collision-model',args.base_collision_model]
         if args.fixed_offsets:command.append('--fixed-offsets')
@@ -130,7 +132,7 @@ def main():
                 joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
                 progress=progress,adapt_offsets=not args.fixed_offsets,rotation_steps=args.rotation_steps,
                 geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
-                normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,base_yaw_degrees=args.base_yaw_degrees,
+                normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,base_yaw_degrees=args.base_yaw_degrees,base_yaw_margin_degrees=args.base_yaw_margin_degrees,
                 max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
                 **{k:v for k,v in r.get('mobile_options',{}).items() if k in
                    ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')})
@@ -152,7 +154,7 @@ def main():
                                  adapt_offsets=not args.fixed_offsets,check_edges=False,
                                  geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
                                  normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,
-                                 base_yaw_degrees=args.base_yaw_degrees,base_screening=args.base_screening,
+                                 base_yaw_degrees=args.base_yaw_degrees,base_yaw_margin_degrees=args.base_yaw_margin_degrees,base_screening=args.base_screening,
                                  exclude_gps=not args.include_gps,base_collision_model=args.base_collision_model)) as run:
         result=execute()
     result['research_run']=str(run.path)

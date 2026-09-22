@@ -280,12 +280,16 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 @high_qos
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
                    max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
-                   base_yaw_degrees=0., geometry_mode='auto', geometry_options=None, **limits):
+                   base_yaw_degrees=0., base_yaw_margin_degrees=30.,
+                   geometry_mode='auto', geometry_options=None, **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
     from .mobile_adaptation import repair_offsets
     base_yaw_degrees = float(base_yaw_degrees)
     if not math.isfinite(base_yaw_degrees):
         raise ValueError('base_yaw_degrees must be finite')
+    base_yaw_margin_degrees = float(base_yaw_margin_degrees)
+    if not math.isfinite(base_yaw_margin_degrees) or not 0 <= base_yaw_margin_degrees <= 180:
+        raise ValueError('base_yaw_margin_degrees must be between 0 and 180')
     angle = math.radians(base_yaw_degrees % 360.)
     c, s = math.cos(angle), math.sin(angle)
     def orient(bases):
@@ -315,6 +319,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         return result
     result = validate(proposal['base_planes'])
     applied = np.tile([normal_offset,abs(tangent_offset)],(len(targets),1))
+    applied_yaw = np.zeros(len(targets))
     attempts = []
     repair_seconds = 0.
     if adapt_offsets and not result['fabrication_validated'] and not result['initial_state_failure']:
@@ -354,12 +359,19 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         result,applied,attempts = repair_offsets(targets,proposal['base_planes'],result,
             validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
             search_extent=float(extent),cancel_check=limits.get('cancel_check'),
-            build_frames=prepared[0].frames if prepared else None,prefer_progress=has_arcs)
+            build_frames=prepared[0].frames if prepared else None,prefer_progress=has_arcs,
+            yaw_margin_degrees=base_yaw_margin_degrees)
+        if applied.shape[1] == 3:
+            applied_yaw = np.rad2deg(applied[:,2])
+            applied = applied[:,:2]
         repair_seconds = perf_counter()-tick
     if tangent_offset < 0:applied[:,1] *= -1
     proposal.update(result)
     proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets),
                     base_yaw_degrees=base_yaw_degrees,
+                    base_yaw_margin_degrees=base_yaw_margin_degrees,
+                    applied_yaw_adjustments_degrees=applied_yaw,
+                    applied_base_yaw_degrees=base_yaw_degrees+applied_yaw,
                     excluded_collision_links=sorted(getattr(world,'excluded_collision_links',())),
                     base_collision_geometry=getattr(world,'base_collision_geometry',{}))
     proposal['timings'] = dict(totals,geometry_seconds=geometry_seconds,repair_seconds=repair_seconds,
@@ -443,6 +455,7 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
         geometry_mode=proposal.get('geometry_mode','auto'), geometry_options=proposal.get('geometry_options',{}),
         excluded_collision_links=proposal['excluded_collision_links'],
         base_yaw_degrees=proposal['base_yaw_degrees'],
+        base_yaw_margin_degrees=proposal['base_yaw_margin_degrees'],
         rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
         tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),

@@ -63,7 +63,7 @@ geometric collision checks or claim an end-to-end speedup.
 ## Reproduction and local artifacts
 
 ```powershell
-python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --base-collision-model boxes
+python validation/validate_mobile_base_case.py CASE --output OUTSIDE_GIT --base-collision-model boxes --base-yaw-margin-degrees 0
 ```
 
 Use `--base-collision-model detailed` for the previous geometry. Grasshopper's

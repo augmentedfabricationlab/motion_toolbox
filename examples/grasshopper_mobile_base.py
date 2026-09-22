@@ -12,6 +12,8 @@ Optional inputs:
   geometry_options: JSON thresholds in metres/degrees (see README).
   base_yaw_degrees: Item / Number slider, default 0; rotate base orientation
     at its origin about upright Z. Positive is counterclockwise from above.
+  base_yaw_margin_degrees: default 30; adaptive yaw may depart by +/- this
+    amount from geometry plus base_yaw_degrees. Set 0 to lock yaw.
   current_pose: optional six arm radians or named Configuration at first base.
   arm_in_base: calibrated controller-base plane in model units; normally inferred.
   arm_joint_names, fixed_joint_values, joint_ranges, group, ur_parameters.
@@ -31,6 +33,7 @@ Outputs:
     validation failure. Never interpret these alone as a validated plan.
   configurations / joint_plan: ONLY a complete validated connected arm trajectory.
   valid, status, diagnostics, result, timings, unreachable_points, target_indices.
+  applied_yaw_adjustments_degrees: one signed adaptive yaw change per target.
   base_path, averaged_line, centerline: geometry previews.
 Configuration collisions are checked; transitions are not collision-checked.
 TCP positions/Z axes stay fixed.
@@ -57,9 +60,10 @@ valid=False
 selected_target_planes,selected_tcp_rotations=[],[]
 applied_offsets,repair_attempts,research_run=[],[],None
 path_sections,section_ids,transition_regions=[],[],[]
+applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.38'
+version='0.1.39'
 started=time.monotonic()
 
 try:
@@ -98,6 +102,7 @@ try:
         tangent_offset=float(_input('tangent_offset',1.3/scale))*scale,
         geometry_mode=_input('geometry_mode','auto'),geometry_options=json_input(_input('geometry_options'),{}),
         base_yaw_degrees=float(_input('base_yaw_degrees',0.)),
+        base_yaw_margin_degrees=float(_input('base_yaw_margin_degrees',30.)),
         current_pose=_input('current_pose'),arm_in_base=_input('arm_in_base'),
         arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
         joint_ranges=_input('joint_ranges'),group=_input('group'),parameters=_input('ur_parameters'),
@@ -119,6 +124,7 @@ try:
     selected_target_planes=[to_rhino(p,1./scale) for p in result['selected_target_planes']]
     selected_tcp_rotations=result['selected_tcp_rotations']
     applied_offsets=result['applied_offsets'].tolist()
+    applied_yaw_adjustments_degrees=result['applied_yaw_adjustments_degrees'].tolist()
     repair_attempts=result['repair_attempts']
     path_sections=[json.dumps(s,sort_keys=True) for s in result.get('path_sections',[])]
     section_ids=[int(i) for i in result.get('section_ids',[])]
@@ -149,6 +155,7 @@ try:
         for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
     path_sections,section_ids,transition_regions=[],[],[]
+    applied_yaw_adjustments_degrees=[]
     applied_offsets,repair_attempts,research_run=[],[],None
     selected_target_planes,selected_tcp_rotations=[],[]
     valid=False

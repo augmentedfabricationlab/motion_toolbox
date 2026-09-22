@@ -66,7 +66,7 @@ def test_adaptive_workflow_repairs_collision_and_validates_all_originals(monkeyp
     world.is_valid = collision_check
     world.edge_is_valid = lambda *a,**k: (_ for _ in ()).throw(AssertionError('Swept check requested'))
     kw = dict(solver=Solver(),world=world,joint_ranges=[[-3,3]]*6,periodic=[False]*6,
-              base_yaw_degrees=yaw)
+              base_yaw_degrees=yaw,base_yaw_margin_degrees=0.)
     fixed = workflow.plan_base_path(targets,adapt_offsets=False,**kw)
     assert not fixed['fabrication_validated']
     assert fixed['unreachable_points']==[16]

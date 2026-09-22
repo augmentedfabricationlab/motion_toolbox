@@ -115,7 +115,7 @@ discards a candidate. All accepted configurations still undergo detailed 3D test
 
 ```powershell
 python validation/compare_section_modes.py OLD_CASE --output OUTSIDE_GIT
-python validation/validate_mobile_base_case.py CURVED_CASE --output OUTSIDE_GIT --rotation-steps 16
+python validation/validate_mobile_base_case.py CURVED_CASE --output OUTSIDE_GIT --rotation-steps 16 --base-collision-model detailed --base-yaw-margin-degrees 0
 python validation/benchmark_base_screening.py CURVED_CASE --result VALID_RESULT_JSON --output OUTSIDE_GIT_JSON
 $env:TOOLBOX_RECORDING='0'
 python -m pytest -q

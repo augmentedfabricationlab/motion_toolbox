@@ -4,6 +4,25 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.39 - 2026-09-22
+
+- Add base_yaw_margin_degrees, default 30, for adaptive orientation changes
+  within +/-30 degrees of the prepared heading plus the fixed yaw slider.
+  A zero margin preserves fixed-yaw repair behavior; already-valid paths and
+  adapt_offsets=False retain nominal orientations.
+- Search yaw at the current position before translated candidates, then refine
+  combined offset/yaw repairs. Angular spacing is 5 degrees with exact margin
+  endpoints, refined to 1.25 degrees. Quintic ramps and complete original-target
+  checks retain reach, detailed configured collisions, joint and movement limits.
+  Arc geometry is regenerated before applying each adaptive yaw adjustment.
+- Preserve two-column applied_offsets; add per-target adaptive/total relative
+  yaw outputs and repair metadata. Forward margin settings through numeric APIs,
+  Grasshopper and offline replay. No new runtime dependencies.
+- Validation: all 263 tests pass, including both rotation directions, wrapped
+  headings, custom hard margins, combined signed arc offsets/yaw, complete
+  configuration checks and yaw-step constraints. Full capture replay is recorded
+  separately from the earlier fixed-yaw acceptance.
+
 ## 0.1.38 - 2026-09-22
 
 - Represent the mobile robot's cover with one aligned collision box enclosing

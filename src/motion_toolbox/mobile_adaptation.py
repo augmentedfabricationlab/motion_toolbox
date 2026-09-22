@@ -49,11 +49,13 @@ def repair_anchors(targets, first, last):
 @recorded
 def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                    tangent_offset, search_extent, cancel_check=None, build_frames=None,
-                   prefer_progress=False):
+                   prefer_progress=False, yaw_margin_degrees=0.):
     """Beam of connected full-path repairs with overlapping, expanding windows.
 
     The finite grid and retained alternatives are a search domain, not a proof
     that no continuous placement exists. No elapsed-time limit is imposed.
+    With yaw enabled, internal profiles and the returned applied array have a
+    third column in radians, relative to the regenerated geometric heading.
     """
     started = perf_counter()
     n = len(targets)
@@ -61,27 +63,36 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
     axes_y = np.asarray([b.yaxis for b in bases])
     origins = np.asarray([b.origin for b in bases])
     preferred = np.array([normal_offset, abs(tangent_offset)])
+    margin = np.deg2rad(float(yaw_margin_degrees))
+    if not np.isfinite(margin) or not 0 <= margin <= np.pi:
+        raise ValueError('yaw_margin_degrees must be between 0 and 180')
+    if margin:
+        preferred = np.r_[preferred, 0.]
     side = 1. if tangent_offset >= 0 else -1.
     attempts = []
-    beam = [(np.zeros((n, 2)), initial)]
+    beam = [(np.zeros((n, len(preferred))), initial)]
     seen = {beam[0][0].tobytes()}
+    def absolute_frames(absolute, indices):
+        absolute = np.asarray(absolute)
+        if build_frames is not None:
+            result = build_frames(absolute[:,:2]*[1.,side], indices)
+        else:
+            q = absolute[:,:2]-preferred[:2]
+            xyz = origins[indices]-q[:,0,None]*axes_x[indices]+side*q[:,1,None]*axes_y[indices]
+            result = [Plane(o,x,y) for o,x,y in zip(xyz, axes_x[indices], axes_y[indices])]
+        if margin:
+            c,s = np.cos(absolute[:,2]),np.sin(absolute[:,2])
+            result = [Plane(b.origin,cc*b.xaxis+ss*b.yaxis,-ss*b.xaxis+cc*b.yaxis)
+                      for b,cc,ss in zip(result,c,s)]
+        return result
     def frames(offsets):
-        if build_frames is not None:
-            return build_frames((preferred+offsets)*[1., side])
-        xyz = origins-offsets[:,0,None]*axes_x+side*offsets[:,1,None]*axes_y
-        return [Plane(o,x,y) for o,x,y in zip(xyz, axes_x, axes_y)]
-    def single_frame(index, absolute):
-        if build_frames is not None:
-            return build_frames(np.asarray(absolute)*[1.,side], [index])[0]
-        q = absolute-preferred
-        return Plane(origins[index]-q[0]*axes_x[index]+side*q[1]*axes_y[index],
-                     axes_x[index], axes_y[index])
+        return absolute_frames(preferred+offsets, np.arange(n))
     def screen_pair(indices, absolute, offsets, first):
         corrections = offsets[indices]+absolute-preferred-offsets[first]
-        if build_frames is not None:
-            proposed = build_frames((preferred+corrections)*[1.,side], indices)
-        else:
-            proposed = [single_frame(i, preferred+q) for i,q in zip(indices,corrections)]
+        absolute = preferred+corrections
+        if margin and np.any(abs(absolute[:,2]) > margin+1e-12):
+            return False
+        proposed = absolute_frames(absolute, np.asarray(indices))
         return probe(indices, proposed)
     def cost(offsets):
         return float(np.mean(offsets**2)+10*np.sum(np.diff(offsets,axis=0)**2)
@@ -111,26 +122,41 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
             screening = sorted(set(repair_anchors(targets,first,last)+[first,last]))
             grid = np.arange(0., search_extent+.05, .10)
             pairs = [np.array([d,t]) for d in grid if d > 0 for t in grid]
-            pairs.sort(key=lambda p:(float(np.sum((p-center)**2)), float(np.sum((p-preferred)**2)), *p))
+            pairs.sort(key=lambda p:(float(np.sum((p-center[:2])**2)), float(np.sum((p-preferred[:2])**2)), *p))
+            if margin:
+                # Try rotation at the current position first, then retain one
+                # viable angle per XY candidate instead of multiplying the beam.
+                pairs.insert(0, center[:2].copy())
+                steps = np.arange(0.,margin,np.deg2rad(5))
+                angles = sorted(set(np.clip(np.r_[steps,-steps,-margin,margin,center[2]],
+                    -margin,margin)), key=lambda a:(abs(a-center[2]),abs(a),a))
             viable = []
             for pair in pairs:
                 if cancel_check:
                     cancel_check()
-                correction = pair-preferred-offsets[first]
-                if np.linalg.norm(correction) < 1e-10:
-                    continue
-                if screen_pair(screening, pair, offsets, first):
-                    viable.append(pair)
-                    if len(viable) == 4:
+                candidates = [np.r_[pair,a] for a in angles] if margin else [pair]
+                for candidate in candidates:
+                    if cancel_check:
+                        cancel_check()
+                    correction = candidate-preferred-offsets[first]
+                    if np.linalg.norm(correction) < 1e-10:
+                        continue
+                    if screen_pair(screening, candidate, offsets, first):
+                        viable.append(candidate)
                         break
+                if len(viable) == 4:
+                    break
             # Refine viable offset neighborhoods before expensive full-path work.
             for spacing in (.05, .025):
                 refined = []
                 for pair in viable:
-                    neighborhood = [pair+np.array([a,b])*spacing for a in (-1,0,1) for b in (-1,0,1)]
+                    steps = [np.array([a,b])*spacing for a in (-1,0,1) for b in (-1,0,1)]
+                    if margin:
+                        steps = [np.r_[q, np.deg2rad(50*spacing)*a] for q in steps for a in (-1,0,1)]
+                    neighborhood = [pair+step for step in steps]
                     neighborhood.sort(key=lambda p:float(np.sum((p-preferred)**2)))
                     for p in neighborhood:
-                        if p[0] <= 0 or p[1] < 0 or np.any(p > search_extent):
+                        if p[0] <= 0 or p[1] < 0 or np.any(p[:2] > search_extent) or (margin and abs(p[2]) > margin+1e-12):
                             continue
                         if screen_pair(screening, p, offsets, first):
                             refined.append(p)
@@ -157,7 +183,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     if cancel_check:
                         cancel_check()
                     trial = offsets+weights[:,None]*(pair-preferred-offsets[first])
-                    if np.any(preferred+trial < 0):
+                    if np.any((preferred+trial)[:,:2] < 0) or (margin and np.any(abs(trial[:,2]) > margin+1e-12)):
                         continue
                     key = trial.tobytes()
                     if key in seen:
@@ -165,8 +191,10 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     seen.add(key)
                     proposed = frames(trial)
                     attempt = dict(interval=[lo,hi], failed_interval=[first,last],
-                                   offset_at_failure=pair.tolist(), refinement_metres=.025,
+                                   offset_at_failure=pair[:2].tolist(), refinement_metres=.025,
                                    anchors=anchors, smoothness_cost=cost(trial))
+                    if margin:
+                        attempt.update(yaw_adjustment_degrees=float(np.rad2deg(pair[2])),yaw_refinement_degrees=1.25)
                     if not probe(anchors, [proposed[i] for i in anchors]):
                         attempt['state'] = 'anchor_rejection'
                     else:

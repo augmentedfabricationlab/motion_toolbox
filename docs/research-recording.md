@@ -241,6 +241,13 @@ and unresolved section IDs. `classification_seconds` measures section preparatio
 `geometry_seconds` includes smoothing and base generation. Fits are prepared once
 per planning call and reused by repairs. Arc `applied_offsets` contain radial
 distance and signed distance along the enlarged circle, in metres.
+Version 0.1.39 additionally records `base_yaw_margin_degrees` (default 30),
+per-target `applied_yaw_adjustments_degrees`, and `applied_base_yaw_degrees`
+(fixed slider plus adaptive adjustment, relative to geometric heading).
+`mobile.offset_repair` events retain proposed `yaw_adjustment_degrees` and
+`yaw_refinement_degrees` alongside the existing two offset values. Numeric API,
+GH effective settings and offline configuration report the same margin. Setting
+it to zero preserves the prior fixed-yaw repair search.
 
 `excluded_collision_links` reports effective omissions from the configured world.
 From 0.1.38, `base_collision_geometry` and the `collision.base_geometry` event

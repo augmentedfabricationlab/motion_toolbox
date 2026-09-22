@@ -177,7 +177,7 @@ checks. This changes query scheduling, not which geometry can reject a pose.
 and uses outward radial offsets for strongly curved sections. Repeated passes
 share an arc center fitted to the original XY TCP positions, with separate
 pass radii. `tangent_offset` is signed distance along the enlarged base circle;
-base +X points toward its center, +Y is tangent, and +Z stays upright. Traversal
+nominal base +X points toward its center, +Y is tangent, and +Z stays upright. Traversal
 reversals do not flip orientation. The yaw slider still rotates each final frame.
 `geometry_mode="legacy"` selects the previous geometry for comparison.
 
@@ -293,6 +293,29 @@ range -180 to 180, default 0). Positive angles rotate the base counterclockwise
 viewed from above, at each base origin, with Z upright. Offset directions remain
 relative to the prepared straight/arc geometry. IK, placement and collision checks use the rotated
 base orientations, including during adaptive repairs.
+`base_yaw_margin_degrees` defaults to **30**, allowing adaptive rotations up to
+**+/-30 degrees** around the prepared straight/arc orientation plus
+`base_yaw_degrees`. Set the margin to **0** to restore fixed-yaw repairs.
+Already-valid paths keep their nominal yaw. With `adapt_offsets=False`, neither
+offsets nor yaw adapt. The margin accepts values from 0 to 180 degrees and is
+independent of model units and the per-transition `max_yaw_step` limit.
+
+Repairs try rotation at the current position before translated candidates and
+retain one viable angle per offset candidate to bound the search. Angles use
+5-degree spacing with the exact margin endpoints included, then local refinement
+to 2.5 and 1.25 degrees. Position and yaw use quintic repair ramps; every original
+target and join must still pass reach, base/arm/tool collision, joint, translation
+and yaw movement checks. Combined radial/tangential/yaw repairs regenerate the
+section geometry before applying the additional rotation. A sampled search can
+miss a feasible continuous solution.
+
+`applied_yaw_adjustments_degrees` reports each target's additional signed adaptive
+rotation. `applied_base_yaw_degrees` adds the fixed yaw slider to that adjustment;
+both are relative to the prepared geometric heading, not world compass headings.
+`applied_offsets` remains a two-column normal/tangential array. Grasshopper accepts
+an optional Item input named `base_yaw_margin_degrees` and exposes
+`applied_yaw_adjustments_degrees`; offline replay accepts
+`--base-yaw-margin-degrees 30`.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling

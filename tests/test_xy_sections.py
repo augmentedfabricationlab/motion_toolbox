@@ -121,7 +121,7 @@ def test_radial_repairs_recompute_heading_and_final_configuration_check(monkeypa
         return radius >= 2.5-1e-10
     world.is_valid=valid
     result=plan_base_path(ts,solver=ZeroSolver(),world=world,joint_ranges=[[-3,3]]*6,
-        periodic=[False]*6,normal_offset=.4,tangent_offset=.3,rotation_steps=1,max_base_step=.3)
+        periodic=[False]*6,normal_offset=.4,tangent_offset=.3,rotation_steps=1,max_base_step=.3,base_yaw_margin_degrees=0.)
     assert result['fabrication_validated'],result['status']
     assert result['repair_attempts'] and checked
     assert all(np.linalg.norm(b.origin[:2])>=2.5-1e-10 for b in result['base_planes'])
