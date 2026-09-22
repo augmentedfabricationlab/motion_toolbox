@@ -6,6 +6,8 @@ not evidence of a published release. Commit references identify the source.
 
 ## 0.1.35 - 2026-09-22
 
+- User confirmation: the Grasshopper mobile base example now works well for
+  the last segment.
 - Increase the preferred normal base offset from 0.9 m to 1.0 m in the shared
   mobile planner and GH component. The tangential default remains 1.3 m;
   explicit inputs override both defaults. Prior capture results used 0.9 m.
