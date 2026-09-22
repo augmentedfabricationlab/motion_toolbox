@@ -48,7 +48,8 @@ def repair_anchors(targets, first, last):
 
 @recorded
 def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
-                   tangent_offset, search_extent, cancel_check=None, build_frames=None):
+                   tangent_offset, search_extent, cancel_check=None, build_frames=None,
+                   prefer_progress=False):
     """Beam of connected full-path repairs with overlapping, expanding windows.
 
     The finite grid and retained alternatives are a search domain, not a proof
@@ -75,6 +76,13 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
         q = absolute-preferred
         return Plane(origins[index]-q[0]*axes_x[index]+side*q[1]*axes_y[index],
                      axes_x[index], axes_y[index])
+    def screen_pair(indices, absolute, offsets, first):
+        corrections = offsets[indices]+absolute-preferred-offsets[first]
+        if build_frames is not None:
+            proposed = build_frames((preferred+corrections)*[1.,side], indices)
+        else:
+            proposed = [single_frame(i, preferred+q) for i,q in zip(indices,corrections)]
+        return probe(indices, proposed)
     def cost(offsets):
         return float(np.mean(offsets**2)+10*np.sum(np.diff(offsets,axis=0)**2)
                      +100*np.sum(np.diff(offsets,n=2,axis=0)**2))
@@ -87,7 +95,9 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
     # retained until their full sequence, including both joins, has been tested.
     while beam:
         next_beam = []
-        for offsets, previous in beam:
+        pending = beam[1:] if prefer_progress else []
+        active = beam[:1] if prefer_progress else beam
+        for offsets, previous in active:
             failed = failure_indices(previous)
             if not failed:
                 continue
@@ -98,6 +108,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     break
                 last = i
             center = preferred+offsets[first]
+            screening = sorted(set(repair_anchors(targets,first,last)+[first,last]))
             grid = np.arange(0., search_extent+.05, .10)
             pairs = [np.array([d,t]) for d in grid if d > 0 for t in grid]
             pairs.sort(key=lambda p:(float(np.sum((p-center)**2)), float(np.sum((p-preferred)**2)), *p))
@@ -108,8 +119,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                 correction = pair-preferred-offsets[first]
                 if np.linalg.norm(correction) < 1e-10:
                     continue
-                candidate = single_frame(first, pair)
-                if probe([first], [candidate]):
+                if screen_pair(screening, pair, offsets, first):
                     viable.append(pair)
                     if len(viable) == 4:
                         break
@@ -122,8 +132,7 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     for p in neighborhood:
                         if p[0] <= 0 or p[1] < 0 or np.any(p > search_extent):
                             continue
-                        b = single_frame(first, p)
-                        if probe([first], [b]):
+                        if screen_pair(screening, p, offsets, first):
                             refined.append(p)
                             break
                 # Keep the coarse alternatives until whole-path checks decide;
@@ -139,6 +148,11 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
             for radius in radii:
                 weights, lo, hi = repair_weights(n, first, last, radius)
                 anchors = sorted(set(repair_anchors(targets, lo, hi)+[first,last]))
+                # Other known failures outside this repair's plateau are for
+                # later rounds. They must not veto an otherwise useful partial
+                # repair; the complete sequence is still validated below.
+                known = set(failed)
+                anchors = [i for i in anchors if i not in known or first <= i <= last]
                 for pair in viable:
                     if cancel_check:
                         cancel_check()
@@ -173,6 +187,8 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     event('mobile.offset_repair', **attempt)
                 if next_beam:
                     break
-        beam = sorted(next_beam, key=rank)[:4]
+        # On new curved paths, pursue the best improving sequence first while
+        # retaining alternatives for a dead end. Legacy traversal is unchanged.
+        beam = sorted(pending+next_beam, key=rank)[:4]
     metric('mobile.repair_seconds', perf_counter()-started, 's')
     return best[1], preferred+best[0], attempts

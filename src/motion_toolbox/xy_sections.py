@@ -11,6 +11,8 @@ DEFAULTS = dict(arc_turn_threshold_deg=45., arc_fit_rms=.03,
 
 def settings(options=None):
     result = dict(DEFAULTS)
+    if options is not None and not isinstance(options, dict):
+        raise ValueError('geometry_options must be a dictionary')
     if options:
         if set(options)-set(result):
             raise ValueError('Unknown geometry options: '+str(set(options)-set(result)))
@@ -116,7 +118,12 @@ def classify_sections(raw, smooth, longitudinal, *, options=None):
     must not become a collection of accidentally 'straight' short arc pieces.
     """
     opts = settings(options)
-    raw, smooth = np.asarray(raw)[:, :2], np.asarray(smooth)[:, :2]
+    raw, smooth = np.asarray(raw, dtype=float), np.asarray(smooth, dtype=float)
+    if any(p.ndim != 2 or p.shape[1] not in (2,3) or len(p)<2 or not np.isfinite(p).all() for p in (raw,smooth)):
+        raise ValueError('Require at least two finite XY/XYZ points')
+    if len(raw)!=len(smooth) or np.asarray(longitudinal).shape!=(len(raw),):
+        raise ValueError('Raw, smoothed and longitudinal samples must correspond')
+    raw, smooth = raw[:, :2], smooth[:, :2]
     n = len(raw)
     cuts = sorted(set([0]+significant_reversals(longitudinal, opts['reversal_excursion'])+[n-1]))
     sections = []

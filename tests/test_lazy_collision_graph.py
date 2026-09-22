@@ -45,3 +45,19 @@ def test_lazy_can_skip_unused_collision_checks_without_changing_cost():
 def test_lazy_rejects_path_count_request_instead_of_claiming_unchecked_counts():
     with pytest.raises(ValueError, match='count_paths'):
         shortest_path([[[0.]]], node_valid=lambda i,j:True)
+
+
+def test_certified_collision_groups_preserve_bounded_states_cost_and_ties():
+    layers=[[[.1], [.1+2*np.pi], [1.], [1.+2*np.pi]] for _ in range(6)]
+    valid=lambda i,j:j in (2,3)
+    eager=shortest_path([[p[2],p[3]] for p in layers],start=[.2],max_step=2.5,count_paths=False)
+    calls=[];stats={}
+    lazy=shortest_path(layers,start=[.2],max_step=2.5,count_paths=False,
+        node_valid=lambda i,j:calls.append((i,j)) or valid(i,j),stats=stats,
+        node_rejection_group=lambda i,j:[0,1] if j<2 else [2,3])
+    assert lazy.configurations==eager.configurations
+    assert lazy.cost==eager.cost
+    assert lazy.indices==[j+2 for j in eager.indices]
+    assert stats['additional_rejections']==6
+    assert (0,1) not in calls
+    assert all((i,j) in calls for i,j in enumerate(lazy.indices))

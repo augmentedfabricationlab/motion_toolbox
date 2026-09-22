@@ -13,7 +13,8 @@ from .execution import high_qos
 from .geometry import Plane, as_plane
 from .xy_smoothing import smooth_xy
 from .xy_centerline import centerline_xy
-from .xy_offset import centerline_offset_frames
+from .xy_offset import centerline_offset_frames, offset_frames
+from .xy_sections import prepare_sections
 from .stationary_region import StationaryRegion
 from .planning import candidates, rotation_offsets
 from .graph import shortest_path
@@ -22,15 +23,17 @@ from .graph import shortest_path
 @recorded
 def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
                        geometry_mode='auto', geometry_options=None, _geometry_out=None):
-    from .xy_sections import prepare_sections
     targets = [as_plane(t) for t in targets]
     smoothing = smooth_xy([t.origin for t in targets], max_xy_deviation)
     guide = centerline_xy(smoothing['curve'])
-    frames = centerline_offset_frames(guide['curve'], guide['mapped_points'],
-        [t.xaxis for t in targets], [t.yaxis for t in targets],
-        x_offset=-normal_offset, y_offset=tangent_offset, pass_points=smoothing['curve'])
+    frames = offset_frames(smoothing['curve'],[t.xaxis for t in targets],[t.yaxis for t in targets],0.,0.)
     geometry, diagnostics = prepare_sections([t.origin for t in targets], smoothing['curve'], guide,
         frames, mode=geometry_mode, options=geometry_options)
+    if any(s['kind']!='arc' for s in diagnostics['path_sections']):
+        frames = centerline_offset_frames(guide['curve'], guide['mapped_points'],
+            [t.xaxis for t in targets], [t.yaxis for t in targets],
+            x_offset=-normal_offset, y_offset=tangent_offset, pass_points=smoothing['curve'])
+        geometry.x, geometry.y = frames['x_axes'], frames['y_axes']
     bases = geometry.frames([normal_offset, tangent_offset])
     if _geometry_out is not None:
         _geometry_out.append(geometry)
@@ -43,7 +46,8 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
                        current_pose=None, rotation_steps=16, max_joint_step=2.5, max_base_step=.25,
                        max_yaw_step=.25, max_reach_xy=1.75, collision_options=None,
                        time_intervals=None, max_base_speed=None, max_yaw_speed=None,
-                       max_joint_speed=None, cancel_check=None, progress=None, _cache=None):
+                       max_joint_speed=None, cancel_check=None, progress=None, _cache=None,
+                       _complete_collision_layers=False):
     """Find the exact shortest arm path with configuration-only collision checking.
 
     time_intervals contains one duration per transition (N-1, or N with a start
@@ -102,6 +106,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
     def joint_key(q):
         return tuple(np.round(q, 12))
     event('mobile.validation_policy', collision_order='after_graph', check_edges=False,
+          failed_layer_policy='complete_exact_checks' if _complete_collision_layers else 'selected_nodes_only',
           rotation_steps=int(rotation_steps), targets=len(targets),
           selection='full-case comparison 20260921: before_graph 100.186 s; after_graph 9.521 s; identical cost')
     for i,(target,base) in enumerate(zip(targets,bases)):
@@ -153,8 +158,12 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         per_layer = np.tile(step,(len(targets),1))
         first = int(current_pose is None)
         per_layer[first:] = np.minimum(step, durations[:,None]*np.broadcast_to(max_joint_speed,(6,)))
+    checked_nodes = {}
     def node_valid(i,j):
         nonlocal collision_hits, collision_checks
+        if (i,j) in checked_nodes:
+            return checked_nodes[i,j]
+        check()
         key = keys[i], tuple(layers[i][j])
         if key in collision_cache:
             accepted, reason = collision_cache[key]
@@ -178,7 +187,20 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
             if d['collision_rejections'] == len(layers[i]):
                 d['state'] = 'configuration_collision'
                 d['collision_free'] = 0
+        checked_nodes[i,j] = accepted
         return accepted
+    completed_layers = set()
+    def rejection_group(i,j):
+        # A tight arc can reject most branches at most targets. Finish exact
+        # checks in a failed layer once, rather than rebuild the entire graph
+        # separately for each colliding branch. No pose equivalence is assumed.
+        rejected = [k for k in range(len(layers[i])) if not node_valid(i,k)]
+        completed_layers.add(i)
+        if progress is not None and len(completed_layers)%100==0:
+            progress(dict(stage='collision_candidates',completed_layers=len(completed_layers),
+                          collision_checks=collision_checks,total=len(targets),
+                          elapsed_seconds=perf_counter()-started))
+        return rejected
     graph_stats = {}
     solved = None
     initial_failure = None
@@ -195,6 +217,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
             progress(dict(stage='joint_graph',total=len(targets),elapsed_seconds=perf_counter()-started))
         solved=shortest_path(layers,start=current_pose,periodic=periodic,max_step=max_joint_step,
             step_limits=per_layer,node_valid=node_valid,stats=graph_stats,count_paths=False,
+            node_rejection_group=rejection_group if _complete_collision_layers else None,
             revolute_joints=getattr(solver,'revolute_joints',None),cancel_check=cancel_check)
         timing['graph_seconds'] = graph_stats['graph_seconds']
     configurations = solved.configurations if solved is not None else []
@@ -248,6 +271,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         disconnected_detail=disconnected_detail,edge_rejection_reasons={},initial_state_failure=initial_failure,
         max_joint_step=max_joint_step,path_length=solved.cost if valid else None,
         collision_check_applied=True,check_edges=False,collision_validation='configurations_only',
+        collision_failed_layer_policy='complete_exact_checks' if _complete_collision_layers else 'selected_nodes_only',
         speed_checked=any(v is not None for v in (max_base_speed,max_yaw_speed,max_joint_speed)),
         timings=timing,validation_seconds=timing['validation_seconds'])
 
@@ -280,11 +304,13 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         raise ValueError('Unresolved strong curvature in sections '+str(proposal['unresolved_sections'])+
                          '; inspect generate_base_path diagnostics or adjust geometry_options')
     geometry_seconds = perf_counter()-tick
+    has_arcs = any(s['kind']=='arc' for s in proposal.get('path_sections',[]))
     cache = {}
     totals = Counter()
     def validate(bases):
         result = validate_base_path(targets,orient(bases),solver=solver,world=world,joint_ranges=joint_ranges,
-                                   periodic=periodic,_cache=cache,**limits)
+            periodic=periodic,_cache=cache,
+            _complete_collision_layers=has_arcs,**limits)
         totals.update(result['timings'])
         return result
     result = validate(proposal['base_planes'])
@@ -292,11 +318,30 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     attempts = []
     repair_seconds = 0.
     if adapt_offsets and not result['fabrication_validated'] and not result['initial_state_failure']:
+        def placement_probe(indices,bases):
+            oriented = orient(bases)
+            # Screen the entire anchor group cheaply before generating any IK.
+            # Otherwise a late body collision wastes all earlier anchor IK.
+            for i,b in zip(indices,oriented):
+                tick = perf_counter()
+                placed = StationaryRegion([targets[i]],solver.arm_in_base,
+                    max_distance=limits.get('max_reach_xy',1.75),projected=True).metrics(b)['geometry_valid']
+                totals['placement_seconds'] += perf_counter()-tick
+                if not placed:
+                    return False
+                tick = perf_counter()
+                clear = world.is_base_valid(b,clearance=(limits.get('collision_options') or {}).get('clearance',0.))
+                totals['collision_seconds'] += perf_counter()-tick
+                if not clear:
+                    return False
+            return True
         def probe(indices,bases):
             options = {k:v for k,v in limits.items() if k in
                        ('rotation_steps','max_reach_xy','collision_options','cancel_check')}
             # Anchor tests are individual placement checks, not transitions over
             # skipped TCPs. Full original-index connectivity is checked afterward.
+            if not placement_probe(indices,bases):
+                return False
             for i,b in zip(indices,orient(bases)):
                 p = validate_base_path([targets[i]],[b],solver=solver,world=world,
                     joint_ranges=joint_ranges,periodic=periodic,_cache=cache,**options)
@@ -309,12 +354,13 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         result,applied,attempts = repair_offsets(targets,proposal['base_planes'],result,
             validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
             search_extent=float(extent),cancel_check=limits.get('cancel_check'),
-            build_frames=prepared[0].frames if prepared else None)
+            build_frames=prepared[0].frames if prepared else None,prefer_progress=has_arcs)
         repair_seconds = perf_counter()-tick
     if tangent_offset < 0:applied[:,1] *= -1
     proposal.update(result)
     proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets),
-                    base_yaw_degrees=base_yaw_degrees)
+                    base_yaw_degrees=base_yaw_degrees,
+                    excluded_collision_links=sorted(getattr(world,'excluded_collision_links',())))
     proposal['timings'] = dict(totals,geometry_seconds=geometry_seconds,repair_seconds=repair_seconds,
                               planning_seconds=perf_counter()-started)
     if attempts and not result['fabrication_validated']:

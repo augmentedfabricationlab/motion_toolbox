@@ -75,7 +75,8 @@ def _winding_layer(previous, current, costs, counts, weights, limits, count_path
 @recorded
 def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2.5,
                   edge_valid=None, chunk_size=128, count_paths=True, revolute_joints=None,
-                  node_valid=None, stats=None, step_limits=None, cancel_check=None):
+                  node_valid=None, stats=None, step_limits=None, cancel_check=None,
+                  node_rejection_group=None):
     """Minimize summed weighted joint distances over all adjacent-layer edges.
 
     No random endpoints or materialized graph. Memory is bounded by a block
@@ -90,11 +91,15 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     nodes are removed and the graph re-solved; count_paths must be False. Returned
     indices always refer to the original input layers. step_limits optionally
     supplies an N x joints array of additional per-transition bounds.
+    node_rejection_group(i,j) may supply additional verified invalid original
+    indices in layer i, for example after completing that layer's collision
+    checks. It never merges states; limits, costs and ties remain exact.
     """
     if node_valid is not None:
         if count_paths:
             raise ValueError('node_valid requires count_paths=False; unchecked alternatives cannot be counted')
-        return _validate_nodes(layers, node_valid, stats, start=start, weights=weights,
+        return _validate_nodes(layers, node_valid, stats, node_rejection_group=node_rejection_group,
+            start=start, weights=weights,
             periodic=periodic, max_step=max_step, edge_valid=edge_valid, chunk_size=chunk_size,
             revolute_joints=revolute_joints, step_limits=step_limits, cancel_check=cancel_check)
     if chunk_size < 1:
@@ -257,12 +262,12 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     return GraphResult([q.tolist() for q in configs], indices, total, sum(counts) if count_paths else 0)
 
 
-def _validate_nodes(layers, check, stats, **options):
+def _validate_nodes(layers, check, stats, node_rejection_group=None, **options):
     """Lazy node rejection around the same exact solver, with original indices."""
     mappings = [list(range(len(layer))) for layer in layers]
     accepted = set()
     stats = {} if stats is None else stats
-    stats.update(graph_solves=0, graph_seconds=0., node_checks=0, node_rejections=0,
+    stats.update(graph_solves=0, graph_seconds=0., node_checks=0, node_rejections=0, additional_rejections=0,
                  node_check_seconds=0., original_nodes=sum(map(len,layers)))
     original_edge = options.pop('edge_valid')
     while True:
@@ -299,7 +304,12 @@ def _validate_nodes(layers, check, stats, **options):
             result.indices = selected
             break
         for i,j in rejected:
-            mappings[i].remove(j)
+            group = {j} if node_rejection_group is None else set(node_rejection_group(i,j)) | {j}
+            if any(k<0 or k>=len(layers[i]) for k in group):
+                raise ValueError('node_rejection_group returned invalid original indices')
+            removed = set(mappings[i]) & group
+            stats['additional_rejections'] += len(removed)-1
+            mappings[i] = [k for k in mappings[i] if k not in group]
     for name,value in stats.items():
         metric('graph.'+name, value, 's' if name.endswith('_seconds') else 'count')
     return result

@@ -45,8 +45,6 @@ def test_arc_radius_signed_arc_distance_and_tangent_heading(reverse, tangent):
 
 def test_repeated_passes_keep_radii_and_share_center_without_heading_flip():
     a, na = arc(radius=2.)
-    b, nb = arc(radius=2.3, reverse=True)
-    points, normals = np.vstack((a,b)), np.vstack((na,nb))
     # Shared turn sample belongs to the second pass; use duplicate endpoint
     # radius only for fitting the first pass to avoid an intentional connector.
     a, na = arc(radius=2.)
@@ -137,6 +135,24 @@ def test_invalid_settings_and_degenerate_fit_are_explicit():
     assert _circle(np.column_stack((np.arange(20),np.zeros(20)))) is None
 
 
+def test_unreliable_original_tcp_arc_is_reported_and_planning_stops(monkeypatch):
+    from motion_toolbox import mobile_base_workflow as workflow
+    points,normals=arc()
+    # Smoothing is coherent, but the original samples cannot support a circle
+    # within the fit limits. Subdivision must not hide the strong curvature.
+    raw=points+normals*np.where(np.arange(len(points))%2, .25, -.25)[:,None]
+    sections,ids,_=classify_sections(raw,points,np.arange(len(points))*.05)
+    unresolved=[s['id'] for s in sections if s['kind']=='unresolved']
+    assert unresolved
+    assert all(s['kind']!='straight' for s in sections)
+    assert len(ids)==len(points)
+    monkeypatch.setattr(workflow,'generate_base_path',lambda *a,**k:
+        dict(unresolved_sections=unresolved))
+    with pytest.raises(ValueError,match='Unresolved strong curvature'):
+        plan_base_path(targets(points,normals),solver=None,world=None,
+                       joint_ranges=[[-3,3]]*6,periodic=[False]*6)
+
+
 def test_fit_and_pose_rotation_translation_equivariance():
     points,normals=arc()
     rotation=np.array([[.6,-.8],[.8,.6]])
@@ -144,3 +160,43 @@ def test_fit_and_pose_rotation_translation_equivariance():
     b=prepared(points@rotation+[10,5],normals@rotation).frames([.7,-.8])
     np.testing.assert_allclose([p.origin[:2] for p in b],np.array([p.origin[:2] for p in a])@rotation+[10,5],atol=1e-9)
     np.testing.assert_allclose([p.xaxis[:2] for p in b],np.array([p.xaxis[:2] for p in a])@rotation,atol=1e-9)
+
+
+def test_s_curve_is_split_at_inflection_with_two_centers():
+    a=np.linspace(-np.pi/2,0,81)
+    b=np.linspace(np.pi,np.pi/2,81)
+    points=np.vstack((np.c_[2*np.cos(a),2+2*np.sin(a)],np.c_[4+2*np.cos(b),2+2*np.sin(b)][1:]))
+    sections,ids,_=classify_sections(points,points,np.arange(len(points))*.05)
+    assert {s['kind'] for s in sections}=={'arc'}
+    assert len({s['arc_group'] for s in sections})==2
+    assert len(ids)==len(points)
+
+
+def test_open_arc_over_180_degrees_does_not_use_single_valued_legacy_headings():
+    points,normals=arc(count=161,sweep=240.)
+    result=generate_base_path(targets(points,normals),max_xy_deviation=.02)
+    assert {s['kind'] for s in result['path_sections']}=={'arc'}
+    assert len(result['base_planes'])==161
+    assert not result['unresolved_sections']
+
+
+@pytest.mark.parametrize('yaw',[30.,-30.])
+def test_arc_yaw_is_applied_after_radial_offset(yaw):
+    from test_mobile_base_workflow import Solver,World
+    points,normals=arc(count=25,center=(0,0))
+    ts=targets(points,normals)
+    world=World()
+    checked=[]
+    class ZeroSolver(Solver):
+        def __call__(self,t,b):return [[0.]*6]
+    world.is_valid=lambda q,b,**kw:checked.append(b) or True
+    kwargs=dict(solver=ZeroSolver(),world=world,joint_ranges=[[-3,3]]*6,periodic=[False]*6,
+                normal_offset=.5,tangent_offset=.2,rotation_steps=1,max_base_step=.5,adapt_offsets=False)
+    base=plan_base_path(ts,**kwargs)
+    rotated=plan_base_path(ts,base_yaw_degrees=yaw,**kwargs)
+    assert base['fabrication_validated'] and rotated['fabrication_validated']
+    angle=np.radians(yaw)
+    for a,b in zip(base['base_planes'],rotated['base_planes']):
+        np.testing.assert_array_equal(a.origin,b.origin)
+        np.testing.assert_allclose(b.xaxis,np.cos(angle)*a.xaxis+np.sin(angle)*a.yaxis,atol=1e-12)
+    assert checked

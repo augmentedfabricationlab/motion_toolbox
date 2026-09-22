@@ -69,6 +69,8 @@ def main():
     parser.add_argument('--tangent-offset',type=float,default=1.3)
     parser.add_argument('--base-yaw-degrees',type=float,default=0.)
     parser.add_argument('--include-gps',action='store_true')
+    parser.add_argument('--base-screening',choices=('none','rectangle','box'),default='none',
+                        help='Experimental immutable-scene preliminary checker; final checks remain detailed')
     parser.add_argument('--worker',action='store_true')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     if not args.worker:
@@ -78,6 +80,7 @@ def main():
                     '--normal-offset',str(args.normal_offset),'--tangent-offset',str(args.tangent_offset),
                     '--base-yaw-degrees',str(args.base_yaw_degrees)]
         if args.include_gps:command.append('--include-gps')
+        command += ['--base-screening',args.base_screening]
         if args.fixed_offsets:command.append('--fixed-offsets')
         with (args.output/'worker.log').open('w') as log:
             run=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
@@ -114,6 +117,11 @@ def main():
         solver,world=setup(args.case,r,calibrated=True)
         setup_seconds=time.perf_counter()-tick
         with world:
+            screen=None
+            if args.base_screening!='none':
+                from base_screening import StaticBaseScreen
+                screen=StaticBaseScreen(world,r['environment_meshes'],args.base_screening)
+                world.is_base_valid=screen.is_base_valid
             result=plan_base_path(targets,solver=solver,world=world,
                 joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
                 progress=progress,adapt_offsets=not args.fixed_offsets,rotation_steps=args.rotation_steps,
@@ -123,6 +131,9 @@ def main():
                 **{k:v for k,v in r.get('mobile_options',{}).items() if k in
                    ('max_base_step','max_yaw_step','time_intervals','max_base_speed','max_yaw_speed','max_joint_speed')})
             result['excluded_collision_links']=sorted(world.excluded_collision_links)
+            if screen is not None:
+                result['base_screening']=dict(method=args.base_screening,**screen.stats)
+                screen.close()
         result['timings']['setup_seconds']=setup_seconds
         result['run']=dict(case_sha256=case_hash,version=__version__,
             source_sha256=hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest(),
@@ -134,7 +145,11 @@ def main():
         return result
     with ResearchRun(args.output/'research',name='mobile capture replay',
                      config=dict(case=str(args.case),case_sha256=case_hash,rotation_steps=args.rotation_steps,
-                                 adapt_offsets=not args.fixed_offsets,check_edges=False)) as run:
+                                 adapt_offsets=not args.fixed_offsets,check_edges=False,
+                                 geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
+                                 normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,
+                                 base_yaw_degrees=args.base_yaw_degrees,base_screening=args.base_screening,
+                                 exclude_gps=not args.include_gps)) as run:
         result=execute()
     result['research_run']=str(run.path)
     with sqlite3.connect(str(run.path/'run.sqlite3')) as db:

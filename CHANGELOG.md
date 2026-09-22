@@ -4,6 +4,32 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.37 - 2026-09-22
+
+- Make adaptive arc repairs screen complete anchor groups before IK, retain
+  progress past other known failure intervals, and pursue the best improving
+  sequence while keeping alternatives. Prepared geometry updates both position
+  and heading; existing offset spacing, refinement and movement limits remain.
+- Complete exact collision checks in failed candidate layers on curved paths
+  before rebuilding the graph. Preserve distinct joint states and exact path
+  costs; straight paths retain the previous selected-node policy.
+- Avoid legacy heading construction on pure arcs, including arcs beyond 180
+  degrees. Spatial fit samples retain original points without chord shrinkage.
+  Expose readable section/transition records in GH and effective exclusions in
+  numeric results. Phase timings include early repair screening.
+- Add reproducible historical mode comparisons and experimental rectangle/box
+  base-screening harnesses. Both screens were slower across three matched trials
+  with identical base decisions; the detailed checker remains the default.
+  Detailed final 3D configuration collision validation is unchanged.
+- Validate all three historical captures with identical auto/legacy poses,
+  configurations and costs at matched historical settings. Today's 1,481-target
+  curved capture validates a complete connected trajectory from the current
+  1.0/1.3 m preferences with adaptive repairs. GPS exclusions match across runs.
+  The full suite passes: 247 tests. See docs/curvature-validation-20260922.md
+  for evidence and timing limitations.
+- No new runtime dependencies. Versions, GH reload checks, recording metadata
+  documentation and regression coverage are synchronized.
+
 ## 0.1.36 - 2026-09-22
 
 - Add automatic straight/arc sections, original-TCP circle fitting with shared

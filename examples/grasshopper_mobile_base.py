@@ -57,7 +57,7 @@ applied_offsets,repair_attempts,research_run=[],[],None
 path_sections,section_ids,transition_regions=[],[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.36'
+version='0.1.37'
 started=time.monotonic()
 
 try:
@@ -118,9 +118,10 @@ try:
     selected_tcp_rotations=result['selected_tcp_rotations']
     applied_offsets=result['applied_offsets'].tolist()
     repair_attempts=result['repair_attempts']
-    path_sections=result.get('path_sections',[])
-    section_ids=result.get('section_ids',[])
-    transition_regions=result.get('transition_regions',[])
+    path_sections=[json.dumps(s,sort_keys=True) for s in result.get('path_sections',[])]
+    section_ids=[int(i) for i in result.get('section_ids',[])]
+    transition_regions=[json.dumps(t,sort_keys=True,default=lambda a:a.tolist())
+                        for t in result.get('transition_regions',[])]
     research_run=result['research_run']
     path_cost=result['path_length']
     status=result['status']

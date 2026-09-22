@@ -60,7 +60,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 7 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.35':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.37':
         importlib.reload(motion_toolbox)
 
     names = (

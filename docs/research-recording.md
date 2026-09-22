@@ -234,6 +234,32 @@ nested phase durations to estimate total time. Geometry/setup, placement, IK,
 filtering, collision and graph timings explain work; `repair_seconds` and total
 planning/validation durations are inclusive and overlap those phases.
 
+Curvature-aware runs also retain `geometry_mode`, effective `geometry_options`,
+section classifications and inclusive fit intervals, unique `section_ids`, shared
+centers, separate pass radii, RMS/maximum fit errors, transition indices/weights,
+and unresolved section IDs. `classification_seconds` measures section preparation;
+`geometry_seconds` includes smoothing and base generation. Fits are prepared once
+per planning call and reused by repairs. Arc `applied_offsets` contain radial
+distance and signed distance along the enlarged circle, in metres.
+
+`excluded_collision_links` reports effective omissions from the configured world.
+The capture event retains requested collision options; source URDFs are archived
+unchanged. GPS frame links remain present. `mobile.validation_policy` and
+`collision_failed_layer_policy` distinguish selected-node checks on straight paths
+from completion of exact checks in failed candidate layers on curved paths.
+Additional graph rejections count only configurations actually checked and found
+invalid. Unselected, unchecked candidates are never described as collision-free.
+Placement and collision phase totals include the inexpensive repair-anchor group
+screening as well as full validators; repair time includes those phases and IK.
+
+Package versions, loaded-module fingerprints (including `xy_sections`) and source
+snapshots use the existing recorder. Offline results additionally include source
+hashes, manifest/case hashes, calibration and effective run settings. Experimental
+base screens are explicit in replay configuration and report setup, screen and
+fallback timings/counters in `base_screening`. Their standalone benchmark disables
+automatic recording in timed loops and writes three matched trial records outside
+Git; it does not claim end-to-end acceleration from a screening measurement.
+
 Normal logs retain final paths but aggregate per-target frame metrics and repair
 counts instead of recording thousands of repeated scalar metrics. Detailed tracing
 remains opt-in. Explicit KeyboardInterrupt/SystemExit exits are marked interrupted;

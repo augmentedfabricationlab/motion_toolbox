@@ -28,6 +28,25 @@ def test_expanded_repairs_can_anticipate_before_first_failure():
     assert np.max(abs(np.diff(expanded)))<np.max(abs(np.diff(narrow)))
 
 
+def test_later_known_failure_does_not_veto_partial_repair():
+    from motion_toolbox.mobile_adaptation import repair_offsets
+    n=81
+    targets=[Plane((i*.02,0,1+(i==45)),(0,0,1),(1,0,0)) for i in range(n)]
+    bases=[Plane((i*.02,-1,0),(0,1,0),(-1,0,0)) for i in range(n)]
+    def validate(bs):
+        failed=[i for i in (20,45) if bs[i].origin[1]>-1.15+1e-10]
+        jumps=[dict(to_target=i+1) for i,d in enumerate(np.diff([b.origin[1] for b in bs])) if abs(d)>.01]
+        return dict(fabrication_validated=not failed and not jumps,unreachable_points=failed,
+                    transition_failures=jumps,disconnected_target=None,status='test',base_planes=bs)
+    def probe(ids,bs):
+        return all(i not in (20,45) or b.origin[1]<=-1.15+1e-10 for i,b in zip(ids,bs))
+    result,applied,attempts=repair_offsets(targets,bases,validate(bases),validate=validate,probe=probe,
+                                        normal_offset=1.,tangent_offset=1.3,search_extent=1.6)
+    assert result['fabrication_validated']
+    assert len(attempts)>1
+    assert np.max(abs(np.diff(applied[:,0])))<=.01
+
+
 @pytest.mark.parametrize('yaw', [0., 30., -30.])
 def test_adaptive_workflow_repairs_collision_and_validates_all_originals(monkeypatch, yaw):
     from motion_toolbox import mobile_base_workflow as workflow

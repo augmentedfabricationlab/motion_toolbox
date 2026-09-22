@@ -189,6 +189,9 @@ Strong sections that cannot be fitted are reported explicitly. The result's
 `classification_seconds` explain the selection and fitting. Each section's
 inclusive `first`/`last` is its fit interval; `section_ids` assigns unique target
 ownership at shared endpoints. Curved `applied_offsets` are radial/arc distances.
+Grasshopper exposes section and transition records as readable JSON strings;
+the numeric result retains structured records and arrays. Position and yaw blend
+with quintic ramps over at most 0.5 m of spatial path at geometry boundaries.
 These settings are also available in the offline replay command through
 `--geometry-mode`, `--geometry-options`, `--normal-offset`, `--tangent-offset`,
 and `--base-yaw-degrees`.
@@ -205,8 +208,8 @@ checks remain authoritative.
 Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.
-The component now generates smooth XY passes, extracts a centerline for
-headings, offsets **each pass** 1.0 m normal and 1.3 m tangentially, and validates
+The component generates smooth XY passes, chooses straight or radial geometry,
+offsets **each pass** 1.0 m outward and 1.3 m tangentially, and validates
 one upright ground base plane per original TCP. By default it samples 16
 rotations (22.5-degree spacing) around each TCP local Z axis, keeping its position
 and extrusion direction fixed. `rotation_steps=1` restores fixed orientation.
@@ -227,11 +230,19 @@ and movement constraints are checked after anchor screening. Failed sampled repa
 searches do not prove that no continuous solution exists. `adapt_offsets=False`
 keeps the original fixed-offset behavior.
 
-The production strategy is graph-first, chosen by a full-case comparison on the
-20260921 capture: 9.52 s for graph/configuration validation versus 100.19 s when
-checking all candidates first, excluding common IK and setup. Both returned the
-same optimal cost. Colliding graph nodes are removed and the exact graph is solved
-again. There is no collision-order mode or adaptive strategy switching.
+Arc repairs reuse the prepared centers and section mapping. Anchor groups get
+placement and detailed base checks before generating IK. Other known failures
+outside the current repair interval remain for later repairs; each proposed path
+still receives complete original-target validation. Curved paths pursue the best
+improving repair first and retain alternatives for a dead end.
+
+The production strategy starts with graph search. Straight paths retain the
+existing selected-node collision checks. For paths containing arcs, a collision
+in the chosen path triggers exact checks of every candidate in that target layer.
+All verified colliding candidates are removed together before solving the graph
+again. This avoids repeated full graph rebuilds in tight curved sections while
+preserving distinct joint states, limits, costs and tie breaks. Every selected
+configuration must pass the detailed checker.
 
 `base_planes` and `base_path` remain visible on a failed proposal. Only `valid`
 (or `result['fabrication_validated']`) indicates a complete validated path;
@@ -251,7 +262,7 @@ Rhino's document units. Set `model_units_to_metres` or
 Add an Item input named `base_yaw_degrees` and connect a Number Slider (suggested
 range -180 to 180, default 0). Positive angles rotate the base counterclockwise
 viewed from above, at each base origin, with Z upright. Offset directions remain
-relative to the centerline. IK, placement and collision checks use the rotated
+relative to the prepared straight/arc geometry. IK, placement and collision checks use the rotated
 base orientations, including during adaptive repairs.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
 Robot models, tool calibration, fixed joints and collision-option lengths use
@@ -280,6 +291,30 @@ calibration, tool/body/environment collisions, fixed joints and allowed pairs,
 and records results with normal research logging. End-to-end timings include process
 startup and setup; `--fixed-offsets` disables repairs for comparison. Captures and
 trial outputs stay outside Git.
+`validation/compare_section_modes.py CASE --output OUTSIDE_GIT` compares old
+captures in an unchanged collision world. It asserts identical auto/legacy base
+matrices, validates both joint paths and compares their configurations and cost.
+Its default offsets are 0.9/1.2 m, matching the historical validated captures;
+the planner's current defaults remain 1.0/1.3 m.
+
+Experimental base screens are available only through the offline harness:
+`--base-screening rectangle` or `--base-screening box`. The rectangle checks a
+rotated robot-derived footprint against obstacle triangles clipped to world
+Z=0–1 m. It retains concavities and tests containment. The box uses the configured
+static robot bounds in PyBullet. Both include fixed-joint transforms and omit GPS.
+Possible overlap always falls back to the exact base checker. Unsupported slab
+heights, clearance or scene geometry also fall back; final 3D configuration checks
+are unchanged. Screens require an immutable scene and fixed-joint settings.
+
+Reproduce three matched screening trials with
+`validation/benchmark_base_screening.py CASE --result VALID_RESULT_JSON --output OUTSIDE_GIT_JSON`.
+On today's 2,962 preferred and repaired poses, both screens produced identical
+base decisions and failure reasons but were slower in all three trials. The
+production default therefore remains the existing checker. Enabling a shortcut
+would additionally require at least 10% lower screening time and three matched
+end-to-end runs without slowdown or changed final results. See the
+[curvature validation report](docs/curvature-validation-20260922.md).
+
 The geometry-only modules (`xy_averaging`, `xy_smoothing`, `xy_centerline`,
 `xy_offset`) and their plotting scripts remain available for experimentation.
 

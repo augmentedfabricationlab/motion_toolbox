@@ -133,6 +133,28 @@ def test_placement_rejection_is_not_mislabeled_as_no_ik():
     assert d['placement']['max_projected_distance']>1.75
 
 
+def test_completed_collision_layers_keep_exact_path_and_check_every_candidate():
+    class Turns(Solver):
+        def __call__(self,t,b):
+            return [[0.]*6,[2*np.pi]+[0.]*5,[1.]*6,[1.+2*np.pi]+[1.]*5]
+    class Certified(World):
+        def __init__(self):self.calls=[]
+        def is_valid(self,q,b,**kw):
+            self.calls.append((q,b))
+            self.last_failure='same physical collision'
+            return abs(q[1]-1.)<1e-9
+    grouped=Certified()
+    plain=Certified()
+    kwargs=dict(solver=Turns(),joint_ranges=[[-8,8]]*6,periodic=[False]*6,rotation_steps=1)
+    a=validate_base_path(*fixture(),world=grouped,_complete_collision_layers=True,**kwargs)
+    b=validate_base_path(*fixture(),world=plain,**kwargs)
+    assert a['fabrication_validated'] and b['fabrication_validated']
+    assert a['configurations']==b['configurations'] and a['path_length']==b['path_length']
+    assert len(grouped.calls)==12
+    assert all(d['collision_rejections']==2 for d in a['target_diagnostics'])
+    assert all(d['collision_free']==2 for d in a['target_diagnostics'])
+
+
 def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypatch):
     rhino,geometry=ModuleType('Rhino'),ModuleType('Rhino.Geometry')
     geometry.Point3d=lambda *p:p
