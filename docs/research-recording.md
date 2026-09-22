@@ -243,6 +243,12 @@ per planning call and reused by repairs. Arc `applied_offsets` contain radial
 distance and signed distance along the enlarged circle, in metres.
 
 `excluded_collision_links` reports effective omissions from the configured world.
+From 0.1.38, `base_collision_geometry` and the `collision.base_geometry` event
+also report the requested/effective cover model, local box dimensions/centers,
+contributing original links, replaced and omitted shapes, and frozen fixed-joint
+values. This physical model change applies to preliminary and final checks;
+compare timings/results only with the same effective model. The original assets
+and the generated collision-world source remain covered by the shared recorder.
 The capture event retains requested collision options; source URDFs are archived
 unchanged. GPS frame links remain present. `mobile.validation_policy` and
 `collision_failed_layer_policy` distinguish selected-node checks on straight paths

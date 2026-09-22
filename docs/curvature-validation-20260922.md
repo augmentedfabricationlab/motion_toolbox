@@ -1,5 +1,10 @@
 # Curvature-aware planning validation — 2026-09-22
 
+These results describe version **0.1.37**, using detailed base geometry with GPS
+excluded. Version 0.1.38 introduces chassis/lift cover boxes; this changes the
+physical collision model and requires new validation. In particular, 85 of the
+old curved trajectory's configurations overlap the enlarged chassis box.
+
 The curved 1,481-target capture produces a fully validated connected trajectory
 with automatic arc geometry and adaptive offsets. All three earlier captures
 retain identical auto/legacy base poses, configurations and graph costs with

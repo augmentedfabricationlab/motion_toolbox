@@ -17,6 +17,8 @@ Optional inputs:
   arm_joint_names, fixed_joint_values, joint_ranges, group, ur_parameters.
   collision_meshes: environment meshes, model units.
   collision_options: JSON; allowed pairs, ground, sampling resolutions, etc.
+    base_collision_model: auto (default cover boxes on the mobile robot),
+    boxes (require that robot profile), or detailed (previous base geometry).
   collision_scene: optional fully configured external scene.
   rotation_steps: default 16 equally spaced orientations about local TCP Z.
   max_joint_step: default 2.5 rad; max_base_step: default 0.25 m in model units;
@@ -57,7 +59,7 @@ applied_offsets,repair_attempts,research_run=[],[],None
 path_sections,section_ids,transition_regions=[],[],[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.37'
+version='0.1.38'
 started=time.monotonic()
 
 try:
@@ -73,7 +75,7 @@ try:
     # Rhino keeps modules alive between recomputes. Refresh dependencies before
     # consumers, including their from-import bindings to older solver functions.
     for module_name in ('kinematics.ur','kinematics.solver','kinematics.calibrated',
-                        'graph','planning','robot_adapter','collision','robot_planning',
+                        'graph','planning','robot_adapter','base_collision','collision','robot_planning',
                         'xy_averaging','xy_smoothing','xy_centerline','xy_offset','xy_sections','execution','mobile_adaptation','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base

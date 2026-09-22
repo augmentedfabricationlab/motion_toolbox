@@ -4,6 +4,35 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.38 - 2026-09-22
+
+- Represent the mobile robot's cover with one aligned collision box enclosing
+  the chassis and four wheels, plus one box enclosing the configured lift.
+  Use these bodies in preliminary and final 3D environment/self/tool checks.
+  Retain detailed arm/tool geometry and every coordinate frame; omit lidar,
+  cameras, GPS and other base accessory shapes without editing source assets.
+- Mobile worlds and replay default to base_collision_model="auto", which uses
+  boxes on the recognized chassis/Ewellix robot and retains other models.
+  Explicit "boxes" requires that profile; "detailed" restores prior geometry.
+  Generic collision worlds remain detailed by default. Pass fixed_joint_values
+  when constructing a box world; changing them requires rebuilding its bounds.
+- Report contributing links, local box dimensions, replaced/omitted shapes and
+  fixed-joint settings. Record the generated collision URDF through the existing
+  recorder. Forward the model option through GH and offline replay.
+- Actual capture check: the chassis/wheel box is approximately
+  1.282 x 0.872 x 0.669 m; the lift box is 0.208 x 0.208 x 1.000 m, including
+  collision margins. The enlarged chassis rejects 85 of the prior trajectory's
+  1,481 configurations, so old detailed-model validation does not transfer.
+- Regression coverage includes corner filling, base rotation, lift extension,
+  stale-bound prevention, preserved arm collisions, inertial-frame offsets,
+  source/frame preservation and fallback for other robot models. No new runtime
+  dependencies. Historical mode comparisons retain detailed geometry by default.
+- Preliminary checks now skip links with no collision shapes. Three matched
+  1,481-pose trials with the same cover model return identical decisions/reasons
+  and reduce base-check time by 14–38%. This does not claim an end-to-end speedup.
+- Validation: all 252 tests pass. The cover-aware full trajectory replay is
+  tracked separately from the earlier detailed-model acceptance.
+
 ## 0.1.37 - 2026-09-22
 
 - Make adaptive arc repairs screen complete anchor groups before IK, retain

@@ -360,7 +360,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     proposal.update(result)
     proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets),
                     base_yaw_degrees=base_yaw_degrees,
-                    excluded_collision_links=sorted(getattr(world,'excluded_collision_links',())))
+                    excluded_collision_links=sorted(getattr(world,'excluded_collision_links',())),
+                    base_collision_geometry=getattr(world,'base_collision_geometry',{}))
     proposal['timings'] = dict(totals,geometry_seconds=geometry_seconds,repair_seconds=repair_seconds,
                               planning_seconds=perf_counter()-started)
     if attempts and not result['fabrication_validated']:
@@ -411,7 +412,7 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
     ranges=json_input(joint_ranges)
     if ranges is None: ranges=[([joints[n].limit.lower,joints[n].limit.upper] if joints[n].limit is not None and joints[n].type!=1 else None) for n in names]
     options=dict(json_input(collision_options,{}))
-    allowed={'gui','allowed_pairs','package_paths','asset_root','ground_z','support_links','joint_resolution','base_resolution','yaw_resolution','clearance','check_static_self_collisions','exclude_gps','excluded_collision_links'}
+    allowed={'gui','allowed_pairs','package_paths','asset_root','ground_z','support_links','joint_resolution','base_resolution','yaw_resolution','clearance','check_static_self_collisions','exclude_gps','excluded_collision_links','base_collision_model'}
     if set(options)-allowed: raise ValueError('Unknown collision options: '+str(set(options)-allowed))
     with ExitStack() as stack:
         if scene is not None:
@@ -419,9 +420,11 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
             world=scene
             if list(world.joint_names)!=names: raise ValueError('Collision scene joint order differs')
         else:
-            constructor={k:options[k] for k in ('gui','allowed_pairs','package_paths','asset_root','check_static_self_collisions','exclude_gps','excluded_collision_links') if k in options}
+            constructor={k:options[k] for k in ('gui','allowed_pairs','package_paths','asset_root','check_static_self_collisions','exclude_gps','excluded_collision_links','base_collision_model') if k in options}
             constructor.setdefault('check_static_self_collisions',False)
             constructor.setdefault('exclude_gps',True)
+            constructor.setdefault('base_collision_model','auto')
+            constructor['fixed_joint_values']=fixed
             world=stack.enter_context(PybulletServer(robot=robot,joint_names=names,**constructor))
             for mesh in collision_meshes: world.add_mesh(mesh,scale=units_to_metres)
             if 'ground_z' in options: world.add_ground(options['ground_z'],support_links=options.get('support_links',()))

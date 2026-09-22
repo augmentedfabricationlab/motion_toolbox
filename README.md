@@ -196,7 +196,28 @@ These settings are also available in the offline replay command through
 `--geometry-mode`, `--geometry-options`, `--normal-offset`, `--tangent-offset`,
 and `--base-yaw-degrees`.
 
-Mobile-created collision worlds omit the absent GPS antenna (`gps_base_link`,
+Mobile-created collision worlds now use `collision_options={"base_collision_model":"auto"}`
+by default. For the chassis/four-wheel/Ewellix robot this installs two actual 3D
+collision boxes: the robot-aligned bounds of the chassis and four wheels, and
+the bounds of both lift bodies at the configured extension. These boxes rotate
+with the base and fill the chassis chamfers to represent its cover. All other
+base accessory collision shapes, including lidar, cameras and GPS, are omitted.
+The complete arm subtree and attached tool retain their original collision
+geometry. Both preliminary and final environment/self/tool checks use this model.
+
+`base_collision_model="boxes"` requires the recognized link structure;
+`"auto"` keeps other robot models detailed. `"detailed"` restores the original
+base collision bodies for comparison. The generic `PybulletServer` defaults to
+`"detailed"`; set its `base_collision_model` explicitly and pass
+`fixed_joint_values` at construction for cover boxes. A different lift/wheel
+configuration requires a new box world, preventing stale bounds. Frames and
+source robot assets remain unchanged. `base_collision_geometry` reports effective
+mode, box centers/sizes in their mounting-link frames, contributing links,
+replaced/omitted collision links and fixed-joint values. Box bounds conservatively
+include PyBullet's collision margins. Offline replay accepts
+`--base-collision-model auto|boxes|detailed`.
+
+In detailed mode, mobile-created collision worlds omit the absent GPS antenna (`gps_base_link`,
 `gps_link`, including robot-prefixed names) from all collision checks. Frames
 remain intact. `collision_options` accepts `exclude_gps=False` to include it or
 `excluded_collision_links` for additional explicitly absent hardware. Results
@@ -204,6 +225,12 @@ report effective exclusions. External scenes retain their supplied geometry;
 configure their exclusions when creating the scene. Offline replay excludes GPS
 by default; `--include-gps` restores it. Full base/arm/tool 3D configuration
 checks remain authoritative.
+Restoring GPS or other accessories requires detailed mode; cover mode intentionally
+omits them. Previously validated detailed-model paths must be revalidated for the
+cover: 85 configurations in today's old trajectory overlap the enlarged chassis.
+Preliminary checks skip empty frame links. On 1,481 identical cover-model poses,
+three matched trials reduced base-check time by 14–38% with unchanged decisions
+and failure reasons; this is a base-check measurement, not total planning time.
 
 Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
@@ -295,7 +322,9 @@ trial outputs stay outside Git.
 captures in an unchanged collision world. It asserts identical auto/legacy base
 matrices, validates both joint paths and compares their configurations and cost.
 Its default offsets are 0.9/1.2 m, matching the historical validated captures;
-the planner's current defaults remain 1.0/1.3 m.
+it defaults to detailed base geometry for those historical comparisons. Pass
+`--base-collision-model boxes` to compare using the cover. The planner's current
+offset defaults remain 1.0/1.3 m.
 
 Experimental base screens are available only through the offline harness:
 `--base-screening rectangle` or `--base-screening box`. The rectangle checks a

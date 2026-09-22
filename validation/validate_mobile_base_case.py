@@ -32,6 +32,8 @@ def setup(folder, replay, calibrated=False):
     world = PybulletServer(Path(folder) / 'robot/robot.urdf',
         joint_names=replay['arm_joint_names'],
         exclude_gps=settings.get('exclude_gps',True),
+        base_collision_model=settings.get('base_collision_model','auto'),
+        fixed_joint_values=replay['fixed_joint_values'],
         **{k: settings[k] for k in ('allowed_pairs', 'check_static_self_collisions','excluded_collision_links') if k in settings})
     try:
         world.set_fixed_joints(replay['fixed_joint_values'])
@@ -69,6 +71,7 @@ def main():
     parser.add_argument('--tangent-offset',type=float,default=1.3)
     parser.add_argument('--base-yaw-degrees',type=float,default=0.)
     parser.add_argument('--include-gps',action='store_true')
+    parser.add_argument('--base-collision-model',choices=('auto','boxes','detailed'),default='auto')
     parser.add_argument('--base-screening',choices=('none','rectangle','box'),default='none',
                         help='Experimental immutable-scene preliminary checker; final checks remain detailed')
     parser.add_argument('--worker',action='store_true')
@@ -80,7 +83,7 @@ def main():
                     '--normal-offset',str(args.normal_offset),'--tangent-offset',str(args.tangent_offset),
                     '--base-yaw-degrees',str(args.base_yaw_degrees)]
         if args.include_gps:command.append('--include-gps')
-        command += ['--base-screening',args.base_screening]
+        command += ['--base-screening',args.base_screening,'--base-collision-model',args.base_collision_model]
         if args.fixed_offsets:command.append('--fixed-offsets')
         with (args.output/'worker.log').open('w') as log:
             run=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
@@ -109,6 +112,7 @@ def main():
     def execute():
         data=load_case(args.case);r=data['replay']
         r['collision_options']['exclude_gps']=not args.include_gps
+        r['collision_options']['base_collision_model']=args.base_collision_model
         event('capture.verified',case_sha256=case_hash,targets=len(r['targets']),
               calibration=dict(arm_in_base=r['arm_in_base'],tcp_in_flange=r['tcp_in_flange']),
               collision_options=r['collision_options'],fixed_joint_values=r['fixed_joint_values'])
@@ -149,7 +153,7 @@ def main():
                                  geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
                                  normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,
                                  base_yaw_degrees=args.base_yaw_degrees,base_screening=args.base_screening,
-                                 exclude_gps=not args.include_gps)) as run:
+                                 exclude_gps=not args.include_gps,base_collision_model=args.base_collision_model)) as run:
         result=execute()
     result['research_run']=str(run.path)
     with sqlite3.connect(str(run.path/'run.sqlite3')) as db:

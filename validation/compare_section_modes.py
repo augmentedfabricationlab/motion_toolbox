@@ -17,9 +17,10 @@ from motion_toolbox.recording import ResearchRun
 
 
 @high_qos
-def compare(case, normal_offset=.9, tangent_offset=1.2):
+def compare(case, normal_offset=.9, tangent_offset=1.2, base_collision_model="detailed"):
     start=perf_counter()
     replay=load_case(case)['replay']
+    replay['collision_options']['base_collision_model']=base_collision_model
     targets=[as_plane(t) for t in replay['targets']]
     proposals={mode:generate_base_path(targets,geometry_mode=mode,
         normal_offset=normal_offset,tangent_offset=tangent_offset) for mode in ('legacy','auto')}
@@ -41,7 +42,7 @@ def compare(case, normal_offset=.9, tangent_offset=1.2):
         excluded=sorted(world.excluded_collision_links)
     return dict(case=str(case),case_sha256=hashlib.sha256((case/'case.json').read_bytes()).hexdigest(),
         targets=len(targets),poses_identical=True,configurations_identical=True,cost_identical=True,
-        normal_offset=normal_offset,tangent_offset=tangent_offset,
+        normal_offset=normal_offset,tangent_offset=tangent_offset,base_collision_model=base_collision_model,
         cost=results['auto']['path_length'],excluded_collision_links=excluded,
         path_sections=proposals['auto']['path_sections'],elapsed_seconds=perf_counter()-start,
         cache_policy='Full-precision per-call cache in an unchanged world; no saved trajectories',
@@ -54,10 +55,11 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--normal-offset',type=float,default=.9)
     parser.add_argument('--tangent-offset',type=float,default=1.2)
+    parser.add_argument('--base-collision-model',choices=('detailed','auto','boxes'),default='detailed')
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     with ResearchRun(args.output/'research',name='auto/legacy straight regression',
-                     config=dict(case=str(args.case),normal_offset=args.normal_offset,tangent_offset=args.tangent_offset)):
-        result=compare(args.case,args.normal_offset,args.tangent_offset)
+                     config=dict(case=str(args.case),normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,base_collision_model=args.base_collision_model)):
+        result=compare(args.case,args.normal_offset,args.tangent_offset,args.base_collision_model)
     def encode(value):
         if isinstance(value,Plane):return value.to_dict()
         if isinstance(value,np.ndarray):return value.tolist()

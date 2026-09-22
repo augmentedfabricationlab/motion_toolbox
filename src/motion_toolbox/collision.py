@@ -8,9 +8,10 @@ import shutil
 import xml.etree.ElementTree as ET
 import numpy as np
 from .geometry import Plane, as_plane
+from .base_collision import cover_boxes
 
 
-COLLISION_API_VERSION = 11
+COLLISION_API_VERSION = 12
 
 
 def _validate_urdf(path):
@@ -46,7 +47,8 @@ class PybulletServer:
     @recorded
     def __init__(self, urdf_path=None, *, robot=None, gui=False, joint_names=None,
                  allowed_pairs=(), package_paths=None, asset_root=None, base=None,
-                 check_static_self_collisions=True, excluded_collision_links=(), exclude_gps=False):
+                 check_static_self_collisions=True, excluded_collision_links=(), exclude_gps=False,
+                 base_collision_model='detailed', fixed_joint_values=None):
         from pybullet_utils.bullet_client import BulletClient
         import pybullet as p
         self.p = BulletClient(connection_mode=p.GUI if gui else p.DIRECT)
@@ -61,6 +63,9 @@ class PybulletServer:
         self.check_static_self_collisions = check_static_self_collisions
         self.excluded_collision_links = set(excluded_collision_links)
         self.exclude_gps = bool(exclude_gps)
+        self.base_collision_model = base_collision_model
+        self._initial_fixed_values = dict(fixed_joint_values or {})
+        self.base_collision_geometry = {}
         semantics = getattr(robot, 'semantics', None)
         self.allowed_pairs.update(frozenset(pair) for pair in getattr(semantics, 'disabled_collisions', ()))
         try:
@@ -75,6 +80,7 @@ class PybulletServer:
                 attachments = []
             if urdf_path is not None:
                 self.load_robot(urdf_path, joint_names=joint_names, base=base)
+                self.set_fixed_joints(self._initial_fixed_values)
                 for acm in attachments:
                     self.attach_mesh(**acm)
         except Exception:
@@ -91,13 +97,17 @@ class PybulletServer:
         p = self.p
         try:
             root = _validate_urdf(path)
+            self.base_collision_geometry = cover_boxes(p, path, root, self.base_collision_model,
+                self._initial_fixed_values, joint_names)
+            if self.base_collision_geometry['effective'] == 'boxes':
+                event('collision.base_geometry', **self.base_collision_geometry)
             names = {link.get('name') for link in root.findall('link')}
             if self.excluded_collision_links-names:
                 raise ValueError('Unknown excluded collision links: '+str(self.excluded_collision_links-names))
             if self.exclude_gps:
                 self.excluded_collision_links.update(name for name in names
                     if name in ('gps_base_link', 'gps_link') or name.endswith(('_gps_base_link', '_gps_link')))
-            if self.excluded_collision_links:
+            if self.excluded_collision_links or self.base_collision_geometry['effective'] == 'boxes':
                 # Keep all frames/joints and assets. Only the temporary collision
                 # world's URDF omits absent hardware, including self/tool checks.
                 for link in root.findall('link'):
@@ -111,6 +121,7 @@ class PybulletServer:
                 filtered = Path(self._temporary.name)/'filtered_collision.urdf'
                 ET.ElementTree(root).write(filtered, encoding='utf-8', xml_declaration=True)
                 path = filtered
+                event('collision.model_asset', path=filtered)
                 event('collision.exclusions', links=sorted(self.excluded_collision_links), exclude_gps=self.exclude_gps)
             self.robot = p.loadURDF(path.as_posix(), useFixedBase=True, flags=p.URDF_USE_SELF_COLLISION)
         except Exception as error:
@@ -209,6 +220,9 @@ class PybulletServer:
     @recorded
     def set_fixed_joints(self, values):
         """Set nonplanned lift/wheel joints explicitly by URDF joint name."""
+        frozen = self.base_collision_geometry.get('fixed_joint_values', {})
+        if any(name in frozen and value != frozen[name] for name,value in values.items()):
+            raise ValueError('Cover boxes enclose configured fixed joints; create a new world with fixed_joint_values')
         for name, value in values.items():
             if name not in self.all_joints or name in self.joint_names or not math.isfinite(value):
                 raise ValueError('Invalid fixed joint')
@@ -324,7 +338,8 @@ class PybulletServer:
         # A conservative broadphase avoids a Bullet distance query for every
         # static link against every environment mesh. Refresh bounds each call
         # so moved bases, fixed joints and externally moved obstacles stay valid.
-        bounds = {link: self.p.getAABB(self.robot, link) for link in self.static_links}
+        active_links = self.static_links.intersection(self.collision_links)
+        bounds = {link: self.p.getAABB(self.robot, link) for link in active_links}
         if not bounds:
             return True
         combined = (tuple(min(b[0][i] for b in bounds.values()) for i in range(3)),
@@ -333,7 +348,7 @@ class PybulletServer:
             obstacle_bounds = self.p.getAABB(obstacle)
             if not self._bounds_overlap(combined, obstacle_bounds, clearance):
                 continue
-            for link in self.static_links - ignored:
+            for link in active_links - ignored:
                 if not self._bounds_overlap(bounds[link], obstacle_bounds, clearance):
                     continue
                 if self.p.getClosestPoints(self.robot, obstacle, clearance, linkIndexA=link):
