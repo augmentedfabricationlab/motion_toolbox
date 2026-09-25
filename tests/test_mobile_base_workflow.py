@@ -181,6 +181,7 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     assert len(out['base_planes'])==3,out['status']
     assert out['target_indices']==[0,1,2]
     assert not out['valid'] and not out['configurations']
+    assert out['planned_tcp'] == []
     assert out['result']['state_counts']['no_ik']==3
     assert ur.inverse_kinematics is not stale
     assert solver_module.inverse_kinematics is ur.inverse_kinematics

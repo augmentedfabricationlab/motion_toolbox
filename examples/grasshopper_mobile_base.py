@@ -29,6 +29,8 @@ Optional inputs:
   max_base_speed: model units/sec; max_yaw_speed, max_joint_speed: rad/sec.
   toolbox_src: optional source override.
 Outputs:
+  planned_tcp: selected world TCP waypoints in model units, including chosen
+    TCP-Z rotations; empty without a complete validated path.
   base_planes / base_result: one geometric proposal per original TCP, even on
     validation failure. Never interpret these alone as a validated plan.
   configurations / joint_plan: ONLY a complete validated connected arm trajectory.
@@ -63,7 +65,8 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.39'
+version='0.1.40'
+planned_tcp=[]
 started=time.monotonic()
 
 try:
@@ -122,6 +125,7 @@ try:
     valid=result['fabrication_validated']
     configurations=result['configuration_objects']
     selected_target_planes=[to_rhino(p,1./scale) for p in result['selected_target_planes']]
+    planned_tcp=list(selected_target_planes) if valid else []
     selected_tcp_rotations=result['selected_tcp_rotations']
     applied_offsets=result['applied_offsets'].tolist()
     applied_yaw_adjustments_degrees=result['applied_yaw_adjustments_degrees'].tolist()
@@ -154,6 +158,7 @@ try:
     for i,q in enumerate(result['configurations']):
         for value in q:joint_plan.Add(float(value),GH_Path(i))
 except Exception as error:
+    planned_tcp=[]
     path_sections,section_ids,transition_regions=[],[],[]
     applied_yaw_adjustments_degrees=[]
     applied_offsets,repair_attempts,research_run=[],[],None

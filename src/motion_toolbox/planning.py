@@ -62,14 +62,19 @@ def _in_ranges(q, ranges):
 
 
 @recorded
-def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=None, *, stats=None):
-    """Return unique feasible joint vectors and diagnostic counts."""
+def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=None, *, stats=None,
+               candidate_angles=None):
+    """Return unique feasible joint vectors and diagnostic counts.
+
+    If supplied, candidate_angles is filled with the TCP-Z angle for each
+    returned vector, retaining the first representative during deduplication.
+    """
     if stats is None and current_run() is not None:
         stats = {}
     started = perf_counter()
     target, base = as_plane(target), as_plane(base)
     joint_ranges = normalize_joint_ranges(joint_ranges)
-    all_q, seen = [], set()
+    all_q, seen, angles_by_q = [], set(), {}
     for angle in offsets:
         for q in ik_solver(target.rotated_z(angle), base):
             q = np.asarray(q, dtype=float)
@@ -79,6 +84,8 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
             if key not in seen:
                 seen.add(key)
                 all_q.append(q.tolist())
+                if candidate_angles is not None:
+                    angles_by_q[key] = angle
     ik_finished = perf_counter()
     # Keep only the solver's returned representatives; never enumerate +/-2pi.
     ranged = [q for q in all_q if _in_ranges(q, joint_ranges)]
@@ -113,6 +120,8 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
                 valid.append(q)
             elif stats is not None:
                 failures[reason] = failures.get(reason, 0)+1
+    if candidate_angles is not None:
+        candidate_angles[:] = [angles_by_q[tuple(np.round(q, 12))] for q in valid]
     if stats is not None:
         stats.update(raw_ik=len(all_q), within_joint_limits=len(ranged),
                      collision_check_applied=collision is not None,
@@ -165,18 +174,22 @@ def calculate_partial_trajectory(current_pose, list_of_targets, number_of_nodes_
         raise ValueError('Collision checking requested without a configured collision checker')
     offsets = rotation_offsets(rotation_mode, rotation_angle_deg, rotation_steps, angle_cw_deg, angle_ccw_deg)
     solver = ik_solver if ik_solver is not None else URKinematics(tool=tool, arm_in_base=arm_in_base)
-    layers, before, after, diagnostics = [], [], [], []
+    layers, before, after, diagnostics, layer_angles = [], [], [], [], []
     candidate_started = perf_counter()
     for target, base in zip(targets, bases):
         stats = {}
-        q, a, b = candidates(target, base, solver, offsets, collision, joint_ranges, stats=stats)
+        angles = []
+        q, a, b = candidates(target, base, solver, offsets, collision, joint_ranges,
+                             stats=stats, candidate_angles=angles)
+        layer_angles.append(angles)
         diagnostics.append(stats)
         layers.append(q)
         before.append(a)
         after.append(b)
     candidate_seconds = perf_counter()-candidate_started
     unreachable = [i for i, q in enumerate(layers) if not q]
-    result = dict(configurations=[], path_length=float('inf'), num_nodes_computed=n,
+    result = dict(configurations=[], selected_target_planes=[], selected_tcp_rotations=[],
+        path_length=float('inf'), num_nodes_computed=n,
         ik_solutions_per_node=layers, rotation_candidates_per_node=[len(offsets)]*n,
         unreachable_points=unreachable, collision_check_applied=collision is not None,
         solution_counts_before_collision=before, solution_counts_after_collision=after,
@@ -199,9 +212,14 @@ def calculate_partial_trajectory(current_pose, list_of_targets, number_of_nodes_
                                count_paths=False, revolute_joints=getattr(solver, 'revolute_joints', None),
                                edge_valid=check_edge if edge_valid is not None or transition_check is not None else None)
         result.update(configurations=solved.configurations, path_length=solved.cost)
+        if solved.configurations:
+            chosen = [layer_angles[i][j] for i, j in enumerate(solved.indices)]
+            result.update(selected_tcp_rotations=chosen,
+                          selected_target_planes=[t.rotated_z(a) for t, a in zip(targets, chosen)])
         result['timings']['graph_seconds'] = perf_counter()-graph_started
     if ik_solutions_output_path is not None:
         payload = dict(result)
+        payload['selected_target_planes'] = [p.to_dict() for p in result['selected_target_planes']]
         payload['path_length'] = result['path_length'] if math.isfinite(result['path_length']) else None
         with open(ik_solutions_output_path, 'w', encoding='utf-8') as f:
             json.dump(payload, f, indent=2, allow_nan=False)

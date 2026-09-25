@@ -4,6 +4,17 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.40 - 2026-09-25
+
+- Add `planned_tcp` to the mobile and regular Grasshopper components: selected
+  world TCP planes in model units, ordered with the planned configurations and
+  including chosen TCP-Z rotations. Clear the output on failure.
+- Retain rotation provenance through candidate deduplication, joint/collision
+  filtering and exact graph selection in the prescribed-base planner. Reuse
+  existing selected planes in mobile planning; no extra IK or FK pass is added.
+- Validation: 57 relevant tests pass, including rotated target selection after
+  filtering, disconnected-path clearing, JSON export, units and GH entry points.
+
 ## 0.1.39 - 2026-09-22
 
 - Add base_yaw_margin_degrees, default 30, for adaptive orientation changes

@@ -578,6 +578,13 @@ uncommitted work; this migration neither cleans nor commits it.
 
 ## Research recording
 
+The `grasshopper.py` and `grasshopper_mobile_base.py` components expose
+`planned_tcp`: add an output with that name to receive the selected world TCP
+planes in model units, including each chosen rotation about TCP Z. Output order
+matches the planned configurations. It is empty if no complete path is found.
+These are planned waypoints, not sampled controller interpolation between them;
+the regular component's collision coverage still follows its collision settings.
+
 Meaningful operations now record structured SQLite runs and hashed, compressed input/output
 artifacts automatically in the shared `~/Documents/GitHub/research_runs` folder,
 independent of the working directory. Set `TOOLBOX_LOG_DIR` to override storage, or wrap related calls in

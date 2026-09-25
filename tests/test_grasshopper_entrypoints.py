@@ -82,6 +82,9 @@ def test_component_executes_with_collision_and_named_output(gh):
     assert out['status'].startswith('Planned'), out['status']
     assert len(out['joint_plan'].branches) == 3
     assert len(out['base_result']) == 3
+    assert len(out['planned_tcp']) == len(out['configurations'])
+    for actual, expected in zip(out['planned_tcp'], targets):
+        np.testing.assert_allclose(actual.matrix, expected.matrix, atol=1e-9)
     assert out['result']['collision_check_applied']
     assert all(c['lift'] == .2 for c in out['configurations'])
     assert out['timings']['total_seconds'] >= out['timings']['setup_seconds']
@@ -94,6 +97,8 @@ def test_missing_inputs_clear_outputs(gh, filename):
     assert failed['configurations'] == []
     assert failed['result'] is None
     assert 'Error' in failed['status']
+    if filename == 'grasshopper.py':
+        assert failed['planned_tcp'] == []
 
 
 
@@ -117,11 +122,14 @@ def test_robot_workflow_unit_conversion_and_blocked_environment():
     result = plan_robot(robot, millimetres, [], q, Plane.world_xy(), names,
                         model_units_to_metres=.001, collision_check=False, rotation_steps=1)
     assert len(result['configurations']) == 3
+    for chosen, expected in zip(result['selected_target_planes'], targets):
+        np.testing.assert_allclose(chosen.matrix, expected.matrix, atol=1e-9)
     obstacle = Mesh.from_vertices_and_faces([[-2,-2,0], [2,-2,0], [2,2,0], [-2,2,0]], [[0,1,2,3]])
     blocked = plan_robot(robot, targets, [], q, Plane.world_xy(), names,
                          collision_meshes=[obstacle], rotation_steps=1)
     assert blocked['collision_check_applied']
     assert blocked['configurations'] == []
+    assert blocked['selected_target_planes'] == []
     assert blocked['unreachable_points'] == [0, 1, 2]
 
 

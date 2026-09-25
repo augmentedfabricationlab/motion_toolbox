@@ -29,6 +29,8 @@ Optional:
   toolbox_src           Item, str: optional development override; normally omit
 
 Outputs:
+  planned_tcp           List, Plane: selected world TCP waypoints in model units;
+                        empty without a complete path; includes chosen TCP-Z rotations
   joint_plan            DataTree: six arm joint values in branch {target_index}
   configurations        List of named COMPAS Configurations: lift, then six arm joints
   base_result           List of footprint planes actually used, one per target
@@ -60,7 +62,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 7 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.39':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.40':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -114,6 +116,7 @@ unreachable_points = []
 result = None
 status = ''
 version = ''
+planned_tcp = []
 timings = {}
 diagnostics = []
 
@@ -140,6 +143,8 @@ try:
         for value in q:
             joint_plan.Add(float(value), GH_Path(i))
     configurations = result['configuration_objects']
+    planned_tcp = [to_rhino(p, 1.0/_input('model_units_to_metres', 1.0))
+                   for p in result['selected_target_planes']]
     base_result = [to_rhino(p, 1.0/_input('model_units_to_metres', 1.0)) for p in result['base_planes']]
     path_cost = result['path_length']
     unreachable_points = result['unreachable_points']
@@ -167,6 +172,7 @@ try:
             from Grasshopper.Kernel import GH_RuntimeMessageLevel
             ghenv.Component.AddRuntimeMessage(GH_RuntimeMessageLevel.Warning, warning)
 except Exception as error:
+    planned_tcp = []
     joint_plan, configurations, base_result = None, [], []
     path_cost, result, unreachable_points = None, None, []
     timings, diagnostics = {}, []
