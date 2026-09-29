@@ -4,6 +4,22 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.42 - 2026-09-29
+
+- Lower the configurable arc detection threshold from 45 to 15 degrees. Shallow
+  arcs require an acceptable whole-pass fit to original TCP XY positions; use
+  that fit's turn to avoid smoothing erasing or inventing curvature evidence.
+  Preserve the 45-degree strong-curvature gate for subdividing failed fits, so
+  lowering the threshold does not turn meander ripples into short fitted arcs.
+- Keep fit tolerances, planner constraints and collision coverage unchanged.
+  Update GH version guards; no dependency or input changes.
+- Geometry replay of the actual 872-target input identifies all 19 passes as
+  arcs. All 34 geometry/yaw regression tests pass, covering shallow arcs, overrides, ripple
+  rejection, mixed sections and upright radial offsets. This is geometry
+  validation, not an IK/collision-certified solution or a runtime claim. All four
+  earlier captures retain their geometry classifications; see
+  docs/arc-threshold-validation-20260929.md for evidence and reproduction.
+
 ## 0.1.41 - 2026-09-29
 
 - Apply exact failed-layer collision completion to non-arc mobile paths too.

@@ -5,8 +5,12 @@ from .geometry import Plane
 from .xy_smoothing import significant_reversals
 
 
-DEFAULTS = dict(arc_turn_threshold_deg=45., arc_fit_rms=.03,
+DEFAULTS = dict(arc_turn_threshold_deg=15., arc_fit_rms=.03,
                 arc_fit_max=.075, transition_length=.5, reversal_excursion=.5)
+# Lowering the whole-pass arc threshold must not split small meanders into
+# locally circular ripple fragments. Retain the original strong-curvature gate
+# for subdivision when the original points do not support a circle.
+_SUBDIVISION_TURN_DEG = 45.
 
 
 def settings(options=None):
@@ -132,15 +136,21 @@ def classify_sections(raw, smooth, longitudinal, *, options=None):
         points = smooth[first:last+1]
         fit = _circle(points)
         turn = fit['turn_deg'] if fit is not None else _heading_turn(points)
-        strong = turn >= opts['arc_turn_threshold_deg']
+        subdivision_turn = max(_SUBDIVISION_TURN_DEG, opts['arc_turn_threshold_deg'])
+        strong = turn >= subdivision_turn
         heading_turn = _heading_turn(points)
-        if heading_turn < 5. or (not strong and not strong_parent and heading_turn < opts['arc_turn_threshold_deg']):
+        original_fit = _circle(raw[first:last+1])
+        if _acceptable(original_fit, opts):
+            # Smoothing can flatten a shallow arc or give near-stationary points
+            # a spurious fitted turn. Use the accepted original-point fit.
+            measured = original_fit
+            turn = measured['turn_deg']
+            kind = 'arc' if turn >= opts['arc_turn_threshold_deg'] or strong_parent else 'straight'
+        elif heading_turn < 5. or (not strong and not strong_parent and heading_turn < subdivision_turn):
             kind, measured = 'straight', fit
         else:
-            measured = _circle(raw[first:last+1])
-            if _acceptable(measured, opts) and (strong or strong_parent):
-                kind = 'arc'
-            elif not strong and not strong_parent and _acceptable(fit, opts):
+            measured = original_fit
+            if not strong and not strong_parent and _acceptable(fit, opts):
                 kind = 'straight'
             elif last-first >= 12 and depth < 12:
                 # Splitting at the worst residual isolates a local change of

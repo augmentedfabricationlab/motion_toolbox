@@ -90,13 +90,42 @@ def test_mixed_line_arc_has_straight_and_arc_sections_and_smooth_joins():
     np.testing.assert_allclose([b.matrix for b in subset],[full[i].matrix for i in indices],atol=1e-12)
 
 
-def test_mostly_straight_uses_identical_legacy_geometry():
-    points,normals=arc(sweep=30.)
+@pytest.mark.parametrize('sweep', [5., 10.])
+def test_mostly_straight_uses_identical_legacy_geometry(sweep):
+    points,normals=arc(sweep=sweep)
     ts=targets(points,normals)
     a=generate_base_path(ts)
     b=generate_base_path(ts,geometry_mode='legacy')
     assert {s['kind'] for s in a['path_sections']}=={'straight'}
     np.testing.assert_array_equal([b.matrix for b in a['base_planes']],[b.matrix for b in b['base_planes']])
+
+
+@pytest.mark.parametrize('sweep', [20., 25., 30.])
+def test_shallow_arcs_use_radial_geometry_with_configurable_threshold(sweep):
+    points,normals=arc(sweep=sweep)
+    ts=targets(points,normals)
+    automatic=generate_base_path(ts)
+    previous=generate_base_path(ts,geometry_options={'arc_turn_threshold_deg':45.})
+    assert {s['kind'] for s in automatic['path_sections']}=={'arc'}
+    assert {s['kind'] for s in previous['path_sections']}=={'straight'}
+    assert automatic['geometry_options']['arc_turn_threshold_deg']==15.
+    assert not automatic['unresolved_sections']
+    for s in automatic['path_sections']:
+        assert s['fit_rms']<=automatic['geometry_options']['arc_fit_rms']
+        assert s['fit_max']<=automatic['geometry_options']['arc_fit_max']
+    # Radial and tangential offsets enlarge the circle without changing Z.
+    for b,p in zip(automatic['base_planes'],automatic['smoothing']['curve']):
+        assert np.linalg.norm(b.origin[:2]-[3.,-2.])==pytest.approx(np.linalg.norm(p[:2]-[3.,-2.])+1.,abs=1e-7)
+        np.testing.assert_allclose(b.zaxis,[0,0,1],atol=1e-12)
+
+
+def test_lower_threshold_does_not_fit_shallow_ripples_piece_by_piece():
+    from motion_toolbox.xy_sections import classify_sections
+    smooth,_=arc(sweep=30.)
+    raw=smooth.copy()
+    raw[:,0]+=.15*np.sin(np.linspace(0,12*np.pi,len(raw)))
+    sections,_,_=classify_sections(raw,smooth,np.linspace(0,1,len(raw)))
+    assert len(sections)==1 and sections[0]['kind']=='straight'
 
 
 def test_radial_repairs_recompute_heading_and_final_configuration_check(monkeypatch):

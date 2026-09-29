@@ -65,7 +65,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.41'
+version='0.1.42'
 planned_tcp=[]
 started=time.monotonic()
 

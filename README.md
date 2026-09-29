@@ -174,7 +174,7 @@ checks. This changes query scheduling, not which geometry can reject a pose.
 ## Adaptive mobile base planning
 
 `geometry_mode="auto"` preserves existing offsets for mostly straight sections
-and uses outward radial offsets for strongly curved sections. Repeated passes
+and uses outward radial offsets for accepted circular sections. Repeated passes
 share an arc center fitted to the original XY TCP positions, with separate
 pass radii. `tangent_offset` is signed distance along the enlarged base circle;
 nominal base +X points toward its center, +Y is tangent, and +Z stays upright. Traversal
@@ -182,8 +182,14 @@ reversals do not flip orientation. The yaw slider still rotates each final frame
 `geometry_mode="legacy"` selects the previous geometry for comparison.
 
 Optional `geometry_options` (a dictionary, or JSON in Grasshopper) uses metres
-and degrees: `arc_turn_threshold_deg=45`, `arc_fit_rms=0.03`,
+and degrees: `arc_turn_threshold_deg=15`, `arc_fit_rms=0.03`,
 `arc_fit_max=0.075`, `transition_length=0.5`, `reversal_excursion=0.5`.
+Shallow arcs must fit the original points over the complete pass; their turn is
+measured from that fit, so averaging cannot erase the curvature evidence.
+If the whole-pass fit fails, subdivision still requires at least 45 degrees of
+strong-curvature evidence (or the configured threshold when higher). This avoids
+turning small ripples into a sequence of short arcs. To restore the higher
+arc threshold, use `geometry_options={"arc_turn_threshold_deg":45}`.
 Strong sections that cannot be fitted are reported explicitly. The result's
 `path_sections`, `section_ids`, `transition_regions`, and
 `classification_seconds` explain the selection and fitting. Each section's
