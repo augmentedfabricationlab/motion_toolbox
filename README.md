@@ -242,7 +242,10 @@ and failure reasons; this is a base-check measurement, not total planning time.
 
 Export paired controller paths with
 [examples/grasshopper_export_paths.py](examples/grasshopper_export_paths.py), a
-Rhino 8 Python 3 component. Connect `planned_tcp` to its `tcp_planes` List/Plane
+Rhino 8 Python 3 component. See the
+[complete Grasshopper input/output reference](docs/grasshopper-export-paths.md).
+Connect a Panel to the built-in `out` output for the printed export destination,
+file paths, warnings and errors. Connect `planned_tcp` to its `tcp_planes` List/Plane
 input, the corresponding `base_planes` List/Plane input, and `speed` in **cm/s**.
 It creates `arm_path.json` and `base_path.json` in a new
 `Documents/yyMMdd_HHmm_robot_path` folder, with numbered suffixes to preserve

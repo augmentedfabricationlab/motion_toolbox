@@ -1,6 +1,11 @@
 """Rhino 8 Python 3: export paired arm/base paths to timestamped Documents folders.
 
-Inputs:
+Create inputs with these exact names, access modes and type hints.
+Optional inputs can be omitted or left unconnected. Connect a Panel to out to
+see the printed export summary and destination. Full parameter documentation:
+docs/grasshopper-export-paths.md
+
+Required inputs:
   tcp_planes             List, Plane: selected TCP planes (connect planned_tcp)
   base_planes            List, Plane: corresponding planned base planes
   speed                  Item, float: TCP origin speed in cm/s
@@ -15,12 +20,17 @@ Optional:
                          when file-loaded, or the installed package
 
 Outputs:
-  tcp_file, base_file     Saved arm_path.json / base_path.json, or None in preview
-  export_folder          New yyMMdd_HHmm_robot_path folder; numbered on collision
-  time_seconds           Shared relative timestamps, one per corresponding pose
-  duration_seconds       Total path duration
-  diagnostics            Readable geometry/unit warnings
-  status, result, version Export summary, full payload/diagnostics and package version
+  out                    Built-in text output: printed summary, folder, file paths,
+                         warnings, or an error explaining why export failed
+  tcp_file               Text: full arm_path.json path; None in preview/on error
+  base_file              Text: full base_path.json path; None in preview/on error
+  export_folder          Text: new yyMMdd_HHmm_robot_path folder (numbered if needed)
+  time_seconds           Number list: shared relative timestamps, seconds per pose
+  duration_seconds       Number: total path duration in seconds
+  diagnostics            Text list: readable geometry/unit warnings or errors
+  status                 Text: export/preview summary, or error message
+  result                 Object: full payload and diagnostics dictionary
+  version                Text: loaded motion-toolbox package version
 
 Every recompute with write_files=True creates a new folder. Both files always
 use the same timestamps, derived from 3D TCP distances / speed. Base positions
@@ -40,7 +50,7 @@ def _input(name, default=None):
 tcp_file, base_file, export_folder = None, None, None
 time_seconds, diagnostics = [], []
 duration_seconds, result = None, None
-status, version = '', '0.1.44'
+status, version = '', '0.1.45'
 try:
     source = _input('toolbox_src')
     script_file = globals().get('__file__')
@@ -84,3 +94,14 @@ except Exception as error:
     time_seconds, duration_seconds, result = [], None, None
     status = 'Error: '+str(error)
     diagnostics = [status]
+
+# Grasshopper's built-in out parameter captures print(), not the status variable.
+print(status)
+if tcp_file is not None:
+    print('Arm path: '+tcp_file)
+    print('Base path: '+base_file)
+elif result is not None:
+    print('Preview only: no files written.')
+for message in diagnostics:
+    if message != status:
+        print('WARNING: '+str(message))

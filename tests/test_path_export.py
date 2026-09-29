@@ -91,18 +91,26 @@ def test_original_sanity_checks_and_repeated_points():
     assert result['duration_seconds']==0 and result['diagnostics']
 
 
-def test_actual_gh_component_export_preview_and_failure(tmp_path):
+def test_actual_gh_component_export_preview_and_failure(tmp_path,capsys):
     script=Path(__file__).resolve().parents[1]/'examples/grasshopper_export_paths.py'
     tcp,base=paths()
     inputs=dict(tcp_planes=tcp,base_planes=base,speed=4.,documents_folder=str(tmp_path))
     result=runpy.run_path(str(script),init_globals=inputs)
     assert result['status'].startswith('Exported 3') and Path(result['tcp_file']).is_file()
+    printed=capsys.readouterr().out
+    assert 'Saved to: '+result['export_folder'] in printed
+    assert 'Arm path: '+result['tcp_file'] in printed
+    assert 'Base path: '+result['base_file'] in printed
     before=list(tmp_path.iterdir())
     preview=runpy.run_path(str(script),init_globals=dict(inputs,write_files=False))
     assert preview['time_seconds']==[0.,10.,22.5] and preview['tcp_file'] is None
     assert list(tmp_path.iterdir())==before
+    printed=capsys.readouterr().out
+    assert 'Preview only: no files written.' in printed and 'Saved to:' not in printed
     failed=runpy.run_path(str(script),init_globals=dict(inputs,speed=0))
     assert failed['result'] is None and failed['tcp_file'] is None and failed['diagnostics']
+    printed=capsys.readouterr().out
+    assert failed['status'] in printed and 'Saved to:' not in printed
 
 
 @pytest.mark.parametrize('loader', ['no_file', 'explicit_source', 'gh_generated_file'])

@@ -4,6 +4,16 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.45 - 2026-09-29
+
+- Restore printed export summaries and file locations in the Grasshopper
+  exporter's built-in out output, including preview notices, warnings and errors.
+- Document every GH input/output, access mode, type hint, default and unit in
+  the script header and docs/grasshopper-export-paths.md. Timing and export
+  payloads are unchanged; no dependency changes.
+- Verify printed success paths, preview behavior and errors in the actual
+  component regression test.
+
 ## 0.1.44 - 2026-09-29
 
 - Fix controller-path export imports when a helper is loaded without a Python
