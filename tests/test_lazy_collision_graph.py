@@ -4,7 +4,8 @@ from motion_toolbox.graph import shortest_path
 
 
 @pytest.mark.parametrize('seed', range(6))
-def test_lazy_nodes_match_eager_optimum_and_original_indices(seed):
+@pytest.mark.parametrize('complete_layers', [False, True])
+def test_lazy_nodes_match_eager_optimum_and_original_indices(seed, complete_layers):
     rng = np.random.RandomState(seed)
     layers = [rng.uniform(-1, 1, (8, 2)).tolist() for _ in range(7)]
     allowed = [rng.rand(8) > .35 for _ in layers]
@@ -17,7 +18,8 @@ def test_lazy_nodes_match_eager_optimum_and_original_indices(seed):
         calls.append((i, j))
         return allowed[i][j]
     lazy = shortest_path(layers, node_valid=check, stats=stats, max_step=1.7,
-                         count_paths=False, start=[0., 0.])
+                         count_paths=False, start=[0., 0.],
+                         node_rejection_group=(lambda i,j:np.flatnonzero(~allowed[i])) if complete_layers else None)
     assert lazy.cost == pytest.approx(eager.cost)
     assert lazy.indices == [maps[i][j] for i, j in enumerate(eager.indices)]
     assert len(calls) == len(set(calls))

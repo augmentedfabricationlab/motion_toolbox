@@ -4,6 +4,24 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.41 - 2026-09-29
+
+- Apply exact failed-layer collision completion to non-arc mobile paths too.
+  Remove all verified colliding candidates in a failing target layer together,
+  avoiding one whole-path graph solve per colliding alternative. Preserve exact
+  joint-path costs, ties, constraints and configuration collision coverage.
+- Pursue the best improving offset/yaw repair first for every path geometry,
+  retaining the existing alternative beam for dead ends. Record the traversal
+  policy. Already-clear layers and single-target anchor probes remain lazy.
+- Refresh Grasshopper version guards. No dependency or input changes, runtime
+  cutoff, joint-turn expansion or transition collision checks are introduced.
+- Validation: 96 relevant tests pass, covering non-arc success/failure and collision-free fast-path regressions,
+  eager/lazy optimality comparisons, offset/yaw repairs and GH entry-point tests.
+  A synthetic 872-target benchmark with normal research logging reduces graph
+  solves from 32 to 2 (54.98 to 3.28 s graph time), with identical configurations,
+  cost and 27,904 collision checks. This is not captured-robot validation; see
+  docs/non-arc-validation-20260929.md for measurements and limitations.
+
 ## 0.1.40 - 2026-09-25
 
 - Add `planned_tcp` to the mobile and regular Grasshopper components: selected

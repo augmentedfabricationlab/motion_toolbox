@@ -191,7 +191,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         return accepted
     completed_layers = set()
     def rejection_group(i,j):
-        # A tight arc can reject most branches at most targets. Finish exact
+        # Any path geometry can reject most branches at a target. Finish exact
         # checks in a failed layer once, rather than rebuild the entire graph
         # separately for each colliding branch. No pose equivalence is assumed.
         rejected = [k for k in range(len(layers[i])) if not node_valid(i,k)]
@@ -308,13 +308,12 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         raise ValueError('Unresolved strong curvature in sections '+str(proposal['unresolved_sections'])+
                          '; inspect generate_base_path diagnostics or adjust geometry_options')
     geometry_seconds = perf_counter()-tick
-    has_arcs = any(s['kind']=='arc' for s in proposal.get('path_sections',[]))
     cache = {}
     totals = Counter()
     def validate(bases):
         result = validate_base_path(targets,orient(bases),solver=solver,world=world,joint_ranges=joint_ranges,
             periodic=periodic,_cache=cache,
-            _complete_collision_layers=has_arcs,**limits)
+            _complete_collision_layers=True,**limits)
         totals.update(result['timings'])
         return result
     result = validate(proposal['base_planes'])
@@ -359,7 +358,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
         result,applied,attempts = repair_offsets(targets,proposal['base_planes'],result,
             validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
             search_extent=float(extent),cancel_check=limits.get('cancel_check'),
-            build_frames=prepared[0].frames if prepared else None,prefer_progress=has_arcs,
+            build_frames=prepared[0].frames if prepared else None,prefer_progress=True,
             yaw_margin_degrees=base_yaw_margin_degrees)
         if applied.shape[1] == 3:
             applied_yaw = np.rad2deg(applied[:,2])

@@ -258,8 +258,11 @@ compare timings/results only with the same effective model. The original assets
 and the generated collision-world source remain covered by the shared recorder.
 The capture event retains requested collision options; source URDFs are archived
 unchanged. GPS frame links remain present. `mobile.validation_policy` and
-`collision_failed_layer_policy` distinguish selected-node checks on straight paths
-from completion of exact checks in failed candidate layers on curved paths.
+`collision_failed_layer_policy` report completion of exact checks in failed
+candidate layers for all path geometries from 0.1.41. Earlier versions enabled
+this only on paths containing arcs. Single-target repair probes retain lazy
+selected-node checks. `mobile.repair_policy` records the traversal strategy and
+retained beam width; production repairs now use `progress_first` on all geometries.
 Additional graph rejections count only configurations actually checked and found
 invalid. Unselected, unchecked candidates are never described as collision-free.
 Placement and collision phase totals include the inexpensive repair-anchor group

@@ -155,6 +155,38 @@ def test_completed_collision_layers_keep_exact_path_and_check_every_candidate():
     assert all(d['collision_free']==2 for d in a['target_diagnostics'])
 
 
+@pytest.mark.parametrize('accepted_from', [0., .7, 1.])
+def test_non_arc_workflow_completes_failed_layers_without_changing_exact_result(accepted_from):
+    from motion_toolbox.mobile_base_workflow import plan_base_path
+    class Branches(Solver):
+        def __call__(self,t,b):
+            return [[j/10, float(t.origin[0]), 0., 0., 0., 0.] for j in range(8)]
+    class Collisions(World):
+        def __init__(self):self.calls=0
+        def is_valid(self,q,b,**kw):
+            self.calls+=1
+            self.last_failure='tool / wall'
+            return q[0]>=accepted_from
+        def edge_is_valid(self,*a,**k):
+            raise AssertionError('Transition collision checks must remain disabled')
+    targets=[Plane((i*.01,0,1),(0,0,1),(1,0,0)) for i in range(33)]
+    world=Collisions()
+    kwargs=dict(solver=Branches(),joint_ranges=[[-3,3]]*6,periodic=[False]*6,
+                rotation_steps=1,max_joint_step=.25)
+    grouped=plan_base_path(targets,world=world,adapt_offsets=False,max_xy_deviation=.01,**kwargs)
+    assert all(s['kind']!='arc' for s in grouped['path_sections'])
+    plain=validate_base_path(targets,grouped['base_planes'],world=Collisions(),**kwargs)
+    assert grouped['collision_failed_layer_policy']=='complete_exact_checks'
+    assert grouped['fabrication_validated']==plain['fabrication_validated']
+    assert grouped['configurations']==plain['configurations']
+    assert grouped['path_length']==plain['path_length']
+    assert grouped['unreachable_points']==plain['unreachable_points']
+    assert grouped['graph_stats']['graph_solves']==(1 if accepted_from==0 else 2)
+    assert plain['graph_stats']['graph_solves']=={0.:1,.7:8,1.:9}[accepted_from]
+    # Already-clear paths keep the cheap selected-node-only fast path.
+    assert world.calls==len(targets)*(1 if accepted_from==0 else 8)
+
+
 def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypatch):
     rhino,geometry=ModuleType('Rhino'),ModuleType('Rhino.Geometry')
     geometry.Point3d=lambda *p:p

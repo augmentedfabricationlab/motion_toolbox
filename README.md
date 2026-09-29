@@ -262,16 +262,17 @@ keeps the original fixed-offset behavior.
 Arc repairs reuse the prepared centers and section mapping. Anchor groups get
 placement and detailed base checks before generating IK. Other known failures
 outside the current repair interval remain for later repairs; each proposed path
-still receives complete original-target validation. Curved paths pursue the best
-improving repair first and retain alternatives for a dead end.
+still receives complete original-target validation. All path geometries pursue
+the best improving repair first and retain alternatives for a dead end.
 
-The production strategy starts with graph search. Straight paths retain the
-existing selected-node collision checks. For paths containing arcs, a collision
-in the chosen path triggers exact checks of every candidate in that target layer.
+The production strategy starts with graph search. For every path geometry, a
+collision in the chosen path triggers exact checks of every candidate in that
+target layer.
 All verified colliding candidates are removed together before solving the graph
-again. This avoids repeated full graph rebuilds in tight curved sections while
+again. This avoids repeated full graph rebuilds in collision-heavy sections while
 preserving distinct joint states, limits, costs and tie breaks. Every selected
-configuration must pass the detailed checker.
+configuration must pass the detailed checker. Layers whose selected candidate
+passes remain lazy; their alternatives do not need immediate collision checks.
 
 `base_planes` and `base_path` remain visible on a failed proposal. Only `valid`
 (or `result['fabrication_validated']`) indicates a complete validated path;

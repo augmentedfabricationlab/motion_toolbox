@@ -58,6 +58,8 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
     third column in radians, relative to the regenerated geometric heading.
     """
     started = perf_counter()
+    event('mobile.repair_policy', traversal='progress_first' if prefer_progress else 'breadth_first',
+          retained_alternatives=4)
     n = len(targets)
     axes_x = np.asarray([b.xaxis for b in bases])
     axes_y = np.asarray([b.yaxis for b in bases])
@@ -215,8 +217,8 @@ def repair_offsets(targets, bases, initial, *, validate, probe, normal_offset,
                     event('mobile.offset_repair', **attempt)
                 if next_beam:
                     break
-        # On new curved paths, pursue the best improving sequence first while
-        # retaining alternatives for a dead end. Legacy traversal is unchanged.
+        # Progress-first traversal retains alternatives for a dead end instead
+        # of expanding every beam entry before pursuing an improving sequence.
         beam = sorted(pending+next_beam, key=rank)[:4]
     metric('mobile.repair_seconds', perf_counter()-started, 's')
     return best[1], preferred+best[0], attempts

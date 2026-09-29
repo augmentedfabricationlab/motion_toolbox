@@ -28,7 +28,8 @@ def test_expanded_repairs_can_anticipate_before_first_failure():
     assert np.max(abs(np.diff(expanded)))<np.max(abs(np.diff(narrow)))
 
 
-def test_later_known_failure_does_not_veto_partial_repair():
+@pytest.mark.parametrize('prefer_progress', [False, True])
+def test_later_known_failure_does_not_veto_partial_repair(prefer_progress):
     from motion_toolbox.mobile_adaptation import repair_offsets
     n=81
     targets=[Plane((i*.02,0,1+(i==45)),(0,0,1),(1,0,0)) for i in range(n)]
@@ -41,7 +42,8 @@ def test_later_known_failure_does_not_veto_partial_repair():
     def probe(ids,bs):
         return all(i not in (20,45) or b.origin[1]<=-1.15+1e-10 for i,b in zip(ids,bs))
     result,applied,attempts=repair_offsets(targets,bases,validate(bases),validate=validate,probe=probe,
-                                        normal_offset=1.,tangent_offset=1.3,search_extent=1.6)
+                                        normal_offset=1.,tangent_offset=1.3,search_extent=1.6,
+                                        prefer_progress=prefer_progress)
     assert result['fabrication_validated']
     assert len(attempts)>1
     assert np.max(abs(np.diff(applied[:,0])))<=.01
