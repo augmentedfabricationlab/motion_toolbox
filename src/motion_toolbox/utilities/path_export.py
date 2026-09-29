@@ -1,4 +1,9 @@
-"""Controller path JSON: metres, xyzw quaternions and relative ROS timestamps."""
+"""Controller path JSON: metres, xyzw quaternions and relative ROS timestamps.
+
+This module supplies reusable functions. In Grasshopper, load
+examples/grasshopper_export_paths.py instead; its header documents all component
+inputs and outputs, including the printed export destination on out.
+"""
 from datetime import datetime
 import json
 import math

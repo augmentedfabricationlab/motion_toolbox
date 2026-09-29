@@ -4,6 +4,11 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## Unreleased
+
+- Keep the Grasshopper export input/output reference in the component file;
+  remove the separate document and clarify which script Grasshopper should load.
+
 ## 0.1.45 - 2026-09-29
 
 - Restore printed export summaries and file locations in the Grasshopper

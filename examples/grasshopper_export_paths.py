@@ -1,31 +1,35 @@
 """Rhino 8 Python 3: export paired arm/base paths to timestamped Documents folders.
 
+Load this file (examples/grasshopper_export_paths.py) in Grasshopper's Python 3
+component. The utilities/path_export.py module is a helper, not the component.
 Create inputs with these exact names, access modes and type hints.
-Optional inputs can be omitted or left unconnected. Connect a Panel to out to
-see the printed export summary and destination. Full parameter documentation:
-docs/grasshopper-export-paths.md
+Optional inputs can be omitted or marked Optional and left unconnected.
+Keep the built-in out output and connect a Panel to see the export destination.
+Add any other named outputs below as needed; output type hints are not required.
 
 Required inputs:
   tcp_planes             List, Plane: selected TCP planes (connect planned_tcp)
-  base_planes            List, Plane: corresponding planned base planes
-  speed                  Item, float: TCP origin speed in cm/s
+  base_planes            List, Plane: corresponding planned base planes, same
+                         count and order as tcp_planes
+  speed                  Item, float: positive TCP origin speed in cm/s
 Optional:
   write_files            Item, bool: True; False previews timing without exporting
   model_units_to_metres  Item, float: 1 for metre inputs, 0.001 for millimetres
   frame_id               Item, str: vicon_world
-  sanity_checks          Item, bool: True; preserve supplied exporter's height >1 m
-                         and base XY extent >=0.9 m checks; False permits small paths
-  documents_folder       Item, str: override Windows Documents destination
-  toolbox_src            Item, str: source override; otherwise use adjacent src
-                         when file-loaded, or the installed package
+  sanity_checks          Item, bool: True; require at least one TCP above 1 m and
+                         base XY bounding-box diagonal >=0.9 m; False allows small paths
+  documents_folder       Item, str: parent destination; default Windows Documents
+  toolbox_src            Item, str: path to repository src directory, not a file;
+                         default adjacent src when file-loaded, or installed package
 
 Outputs:
   out                    Built-in text output: printed summary, folder, file paths,
                          warnings, or an error explaining why export failed
   tcp_file               Text: full arm_path.json path; None in preview/on error
   base_file              Text: full base_path.json path; None in preview/on error
-  export_folder          Text: new yyMMdd_HHmm_robot_path folder (numbered if needed)
-  time_seconds           Number list: shared relative timestamps, seconds per pose
+  export_folder          Text: full new yyMMdd_HHmm_robot_path folder path (numbered
+                         if needed); None in preview/on error
+  time_seconds           Number list: shared relative timestamps in seconds, from zero
   duration_seconds       Number: total path duration in seconds
   diagnostics            Text list: readable geometry/unit warnings or errors
   status                 Text: export/preview summary, or error message
@@ -34,8 +38,13 @@ Outputs:
 
 Every recompute with write_files=True creates a new folder. Both files always
 use the same timestamps, derived from 3D TCP distances / speed. Base positions
-and rotations are unchanged; base speed can differ from TCP speed. This component
-does not perform IK or collision validation and does not communicate with robots.
+and rotations are unchanged; base speed can differ from TCP speed. Positions are
+assumed to be metres unless model_units_to_metres is supplied. Use List access
+for both plane inputs to export the whole path together.
+Files contain metre positions, normalized xyzw quaternions, frame_id and relative
+integer sec/nanosec timestamps. Repeated TCP origins get no extra time, including
+rotation-only changes; diagnostics and out report this. This component does not
+check IK, collisions or motion limits and does not communicate with robots.
 """
 import importlib
 from pathlib import Path
