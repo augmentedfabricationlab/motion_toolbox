@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ..geometry import as_plane
-from ..recording import recorded, event, metric
+from motion_toolbox.geometry import as_plane
+from motion_toolbox.recording import recorded, event, metric
 
 NANOSECONDS = 1_000_000_000
 

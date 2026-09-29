@@ -105,6 +105,27 @@ def test_actual_gh_component_export_preview_and_failure(tmp_path):
     assert failed['result'] is None and failed['tcp_file'] is None and failed['diagnostics']
 
 
+@pytest.mark.parametrize('loader', ['no_file', 'explicit_source', 'gh_generated_file'])
+def test_gh_text_execution_without_package_context(tmp_path,loader):
+    root=Path(__file__).resolve().parents[1]
+    script=root/'examples/grasshopper_export_paths.py'
+    tcp,base=paths()
+    scope=dict(__name__='__main__',__package__=None,tcp_planes=tcp,base_planes=base,
+               speed=4.,documents_folder=str(tmp_path))
+    if loader=='explicit_source':scope['toolbox_src']=str(root/'src')
+    if loader=='gh_generated_file':scope['__file__']=str(tmp_path/'generated_component.py')
+    exec(compile(script.read_text(encoding='utf-8'),str(script),'exec'),scope)
+    assert scope['status'].startswith('Exported 3'),scope['status']
+    assert Path(scope['tcp_file']).is_file() and Path(scope['base_file']).is_file()
+    assert scope['time_seconds']==[0.,10.,22.5]
+
+
+def test_helper_file_can_load_without_a_parent_package():
+    root=Path(__file__).resolve().parents[1]
+    namespace=runpy.run_path(str(root/'src/motion_toolbox/utilities/path_export.py'))
+    assert callable(namespace['build_path_export'])
+
+
 def test_export_records_aggregate_metrics_and_complete_payload(tmp_path):
     import sqlite3
     from motion_toolbox.recording import ResearchRun, read_artifact

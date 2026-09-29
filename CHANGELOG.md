@@ -4,6 +4,16 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.44 - 2026-09-29
+
+- Fix controller-path export imports when a helper is loaded without a Python
+  package context. The GH entry point remains examples/grasshopper_export_paths.py.
+- Allow the GH exporter to run as script text without __file__, with an explicit
+  toolbox_src, or with a generated GH script path. Discover adjacent source only
+  when present; otherwise use the installed toolbox. Export timing is unchanged.
+- All 27 exporter tests pass, including file loading and all three GH text-loading forms.
+  No dependency changes.
+
 ## 0.1.43 - 2026-09-29
 
 - Add grasshopper_export_paths.py and reusable numeric controller-path export:

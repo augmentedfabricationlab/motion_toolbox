@@ -11,7 +11,8 @@ Optional:
   sanity_checks          Item, bool: True; preserve supplied exporter's height >1 m
                          and base XY extent >=0.9 m checks; False permits small paths
   documents_folder       Item, str: override Windows Documents destination
-  toolbox_src            Item, str: source override; defaults to this repo's src
+  toolbox_src            Item, str: source override; otherwise use adjacent src
+                         when file-loaded, or the installed package
 
 Outputs:
   tcp_file, base_file     Saved arm_path.json / base_path.json, or None in preview
@@ -39,11 +40,18 @@ def _input(name, default=None):
 tcp_file, base_file, export_folder = None, None, None
 time_seconds, diagnostics = [], []
 duration_seconds, result = None, None
-status, version = '', '0.1.43'
+status, version = '', '0.1.44'
 try:
-    source = str(_input('toolbox_src', Path(__file__).resolve().parents[1]/'src'))
-    if source in sys.path: sys.path.remove(source)
-    sys.path.insert(0, source)
+    source = _input('toolbox_src')
+    script_file = globals().get('__file__')
+    if source is None and script_file:
+        candidate = Path(script_file).resolve().parent.parent/'src'
+        if (candidate/'motion_toolbox'/'__init__.py').is_file():
+            source = candidate
+    if source is not None:
+        source = str(source)
+        if source in sys.path: sys.path.remove(source)
+        sys.path.insert(0, source)
     importlib.invalidate_caches()
     import motion_toolbox
     importlib.reload(motion_toolbox)
