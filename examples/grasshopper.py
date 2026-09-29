@@ -59,10 +59,10 @@ def _refresh_planner():
     from pathlib import Path
 
     import motion_toolbox.recording as recording
-    if getattr(recording, 'RECORDING_VERSION', 0) < 7 and recording.current_run() is None:
+    if getattr(recording, 'RECORDING_VERSION', 0) < 8 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.42':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.43':
         importlib.reload(motion_toolbox)
 
     names = (

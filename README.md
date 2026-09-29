@@ -240,6 +240,32 @@ Preliminary checks skip empty frame links. On 1,481 identical cover-model poses,
 three matched trials reduced base-check time by 14–38% with unchanged decisions
 and failure reasons; this is a base-check measurement, not total planning time.
 
+Export paired controller paths with
+[examples/grasshopper_export_paths.py](examples/grasshopper_export_paths.py), a
+Rhino 8 Python 3 component. Connect `planned_tcp` to its `tcp_planes` List/Plane
+input, the corresponding `base_planes` List/Plane input, and `speed` in **cm/s**.
+It creates `arm_path.json` and `base_path.json` in a new
+`Documents/yyMMdd_HHmm_robot_path` folder, with numbered suffixes to preserve
+earlier exports. Both files use `vicon_world`, metre positions, normalized xyzw
+quaternions and identical `{sec, nanosec}` timestamps derived from full 3D TCP
+travel. Base geometry and index pairing are unchanged; equal timestamps do not
+mean equal base and TCP speeds.
+
+Outputs include `tcp_file`, `base_file`, `export_folder`, `time_seconds`,
+`duration_seconds`, `diagnostics` and `status`. Every recompute exports by default;
+set `write_files=False` for a timing preview. Optional `documents_folder`,
+`frame_id`, and `model_units_to_metres` (default 1) override location/frame/units.
+The supplied exporter's checks are preserved: TCP maximum height must exceed
+1 m, and base XY bounding-box extent must be at least 0.9 m. Set
+`sanity_checks=False` for intentionally smaller paths. Rotation-only/repeated TCP
+origins receive no extra duration; diagnostics report repeated timestamps.
+Exporting does not revalidate IK, collisions or speed/acceleration limits.
+
+`validation/plot_export_speeds.py INPUT_FOLDER --output OUTSIDE_GIT` plots
+consecutive-pose average arm/base translational speed (requires Matplotlib), and
+saves a PDF, PNG, segment CSV and summary with source hashes. These are planned
+speeds inferred from exported positions/timestamps, not measured velocities.
+
 Load [examples/grasshopper_mobile_base.py](examples/grasshopper_mobile_base.py)
 by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.

@@ -4,6 +4,26 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.43 - 2026-09-29
+
+- Add grasshopper_export_paths.py and reusable numeric controller-path export:
+  paired metre poses, normalized xyzw quaternions and one shared TCP-distance
+  timestamp list. Preserve the supplied sanity checks and timestamped Documents
+  folders; add preview and unit/frame/location overrides. No resampling is added
+  because the supplied example already has matching timestamps at every index.
+- Add a reproducible arm/base speed plot and CSV/JSON summary from controller
+  exports. The 1,760-pose example has 4.00 cm/s TCP speed and 0.22–7.49 cm/s base
+  speed; all paired timestamps match. Outputs remain outside Git.
+- Record export timing/files and aggregate pose/timestamp counts while keeping
+  full payload artifacts, package version and source fingerprints. Update GH
+  recorder refresh guards (recording API version 8); no planner changes or new
+  runtime dependency. Matplotlib is optional for the analysis script.
+- All 43 export/recording tests pass, covering shared 3D timing, quaternion branches, units, invalid inputs, unique
+  folders, incomplete-write cleanup, GH preview/export and recording. The actual
+  component reproduces all 1,760 example positions and orientations; independently
+  recalculated timestamps differ from the old export by at most 1 ns while the
+  new arm/base timestamps match exactly.
+
 ## 0.1.42 - 2026-09-29
 
 - Lower the configurable arc detection threshold from 45 to 15 degrees. Shallow

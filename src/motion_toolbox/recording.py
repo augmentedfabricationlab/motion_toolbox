@@ -37,7 +37,7 @@ _active = globals().get('_active', ContextVar('toolbox_research_run', default=No
 _parent = globals().get('_parent', ContextVar('toolbox_research_step', default=None))
 _suspended = globals().get('_suspended', ContextVar('toolbox_recording_suspended', default=False))
 SCHEMA_VERSION = 1
-RECORDING_VERSION = 7
+RECORDING_VERSION = 8
 DEFAULT_LOG_DIRECTORY = Path.home() / 'Documents' / 'GitHub' / 'research_runs'
 
 
@@ -365,7 +365,7 @@ class ResearchRun:
                 # events. Keep the full diagnostics in the result artifact,
                 # without thousands of duplicate SQLite commits at each parent.
                 if key in ('target_diagnostics','base_planes','selected_target_planes','configuration_objects',
-                           'repair_attempts') and isinstance(item, list):
+                           'repair_attempts','poses','timestamps') and isinstance(item, list):
                     self.metric(prefix + '.' + key + '.count', len(item))
                     continue
                 self._result_metrics(item, prefix + '.' + str(key))

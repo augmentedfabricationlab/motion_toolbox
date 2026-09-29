@@ -65,7 +65,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.42'
+version='0.1.43'
 planned_tcp=[]
 started=time.monotonic()
 
@@ -75,7 +75,7 @@ try:
     sys.path.insert(0,str(source))
     importlib.invalidate_caches()
     import motion_toolbox.recording as recording
-    if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<7:
+    if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<8:
         importlib.reload(recording)
     import motion_toolbox
     importlib.reload(motion_toolbox)
