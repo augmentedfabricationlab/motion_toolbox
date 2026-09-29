@@ -1,0 +1,52 @@
+{
+  "package_version": "0.1.46",
+  "python": "3.9.13",
+  "platform": "Windows",
+  "repeats": 3,
+  "statistic": "median",
+  "workload": "Synthetic IK candidates; real PyBullet configuration collisions",
+  "targets": 150,
+  "candidates_per_target": 48,
+  "cases": {
+    "clear": {
+      "exhaustive": {
+        "setup_seconds": 0.02599629999999986,
+        "total_seconds": 0.7865609999999998,
+        "collision_checks": 7200,
+        "ik_seconds": 0.15701200000000237,
+        "joint_expansion_seconds": 0.0034029999999989347,
+        "collision_seconds": 0.5414737000000011,
+        "path_seconds": 0.018140899999999904
+      },
+      "fast": {
+        "setup_seconds": 0.015809400000000196,
+        "total_seconds": 0.18146770000000023,
+        "collision_checks": 150,
+        "ik_seconds": 0.10934120000000047,
+        "joint_expansion_seconds": 0.002001199999998704,
+        "collision_seconds": 0.013825799999998667,
+        "path_seconds": 0.02853939999999988
+      }
+    },
+    "collision_heavy": {
+      "exhaustive": {
+        "setup_seconds": 0.013265299999999591,
+        "total_seconds": 0.42675830000000037,
+        "collision_checks": 7200,
+        "ik_seconds": 0.06575679999999462,
+        "joint_expansion_seconds": 0.001230599999996862,
+        "collision_seconds": 0.3350049000000057,
+        "path_seconds": 0.008074799999999271
+      },
+      "fast": {
+        "setup_seconds": 0.010270300000000177,
+        "total_seconds": 0.2792602000000004,
+        "collision_checks": 3750,
+        "ik_seconds": 0.06295249999999974,
+        "joint_expansion_seconds": 0.0011499000000041448,
+        "collision_seconds": 0.1848220000000227,
+        "path_seconds": 0.008820199999999723
+      }
+    }
+  }
+}

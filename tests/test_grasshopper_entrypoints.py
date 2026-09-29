@@ -271,7 +271,9 @@ def test_stationary_optional_seed_and_mounting_frame(gh):
     inputs['current_pose'] = []
     assert out['path_count'] == 'not counted'
     assert out['timings']['path_seconds'] >= 0
-    assert len(out['solution_counts']) == len(targets)
+    assert out['solution_counts'] == []
+    assert out['ik_option_count'] == 'not counted'
+    assert not out['counts_complete']
     assert runpy.run_path(script, init_globals=inputs)['path_cost'] == out['path_cost']
     robot._RCF = None
     failed = runpy.run_path(script, init_globals=inputs)
@@ -393,6 +395,38 @@ def test_stationary_does_not_reload_unchanged_pipeline_on_recompute(gh, monkeypa
     assert first['path_count'] == second['path_count']
 
 
+@pytest.mark.parametrize('settings', [dict(fast_validation=False), dict(count_paths=True)])
+def test_stationary_exact_count_toggle(gh, settings):
+    robot, _, targets, _ = robot_fixture()
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_stationary_base.py'), init_globals=dict(
+        robot=robot, target_planes=targets, candidate_planes=[Plane.world_xy()],
+        arm_in_base=Plane.world_xy(), rotation_steps=1, **settings))
+    assert out['status'].startswith('Found base'), out['status']
+    assert out['counts_complete']
+    assert len(out['solution_counts']) == len(targets)
+    assert int(out['ik_option_count']) > 0
+
+
+def test_stationary_refreshes_collision_source_and_dependencies(gh, monkeypatch):
+    import motion_toolbox.collision as collision
+    import motion_toolbox.base_collision as base_collision
+    robot, _, targets, _ = robot_fixture()
+    inputs = dict(robot=robot, target_planes=targets, candidate_planes=[Plane.world_xy()],
+                  arm_in_base=Plane.world_xy(), rotation_steps=1)
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    assert runpy.run_path(script, init_globals=inputs)['base_plane'] is not None
+    monkeypatch.setattr(collision, '_stationary_loaded_stamp', None)
+    monkeypatch.setattr(base_collision, 'cover_boxes', None)
+    monkeypatch.setattr(collision.PybulletServer, 'is_valid', lambda *args: False)
+    result = runpy.run_path(script, init_globals=inputs)
+    assert result['base_plane'] is not None, result['status']
+    assert collision.cover_boxes is base_collision.cover_boxes
+    assert callable(collision.cover_boxes)
+    failed = runpy.run_path(script, init_globals=dict(inputs, units_to_metres=-1))
+    assert failed['base_plane'] is None and failed['joint_plan'] is None
+    assert failed['solution_counts'] == [] and not failed['counts_complete']
+
+
 @pytest.mark.parametrize('build_path', [True, False])
 def test_stationary_never_checks_collision_between_configurations(gh, monkeypatch, build_path):
     from motion_toolbox.collision import PybulletServer
@@ -406,7 +440,7 @@ def test_stationary_never_checks_collision_between_configurations(gh, monkeypatc
         rotation_steps=1, build_path=build_path))
     assert out['status'].startswith('Found base'), out['status']
     assert out['path_search_count'] == int(build_path)
-    assert int(out['ik_option_count']) > 0
+    assert out['ik_option_count'] == 'not counted'
 
 
 def test_stationary_outdated_installation_reports_loaded_path(gh, monkeypatch):

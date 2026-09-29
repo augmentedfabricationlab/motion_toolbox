@@ -458,18 +458,35 @@ Retries check previously failed targets first, preserving original target order
 in successful configuration outputs. The search allows up to `max_validation_attempts`
 (default **3**; set **1** for a single final-position check). It stops at the first
 fully reachable position, rather than evaluating IK for every candidate. The
-winner's cached IK results feed **one** shortest joint-path search. Set
+winner's cached IK results feed **one** joint-path search (which may solve the
+graph repeatedly as colliding configurations are rejected). Set
 `build_path=False` to skip that search. It samples eight rotations around each target's local
 Z axis by default (`rotation_steps`), retaining its position and normal. Counts
 are specific to this discrete search, not a continuous-space optimum.
-`ik_option_count` reports the selected base's IK combinations as text: these are independent target
+`fast_validation=True` is the default: establish collision-free reachability at
+every target, then validate configurations on proposed shortest paths. Collision
+geometry, placement retries, joint limits and the optimal selected path are
+unchanged. Unused alternatives are not exhaustively checked: `solution_counts=[]`,
+`ik_option_count='not counted'`, and `counts_complete=False` explicitly report
+that exact alternative counts are unavailable. Set `fast_validation=False` for
+exhaustive checking and exact counts. `count_paths=True` automatically forces
+exhaustive checking. With `build_path=False`, fast validation stops after proving
+per-target reachability. Windows planning requests scoped HighQoS and restores
+the previous thread policy afterward; it does not change affinity or priority.
+For Python callers, this toggle applies only to `objective='heuristic'`;
+`BasePlan.counts_complete` is false and `BasePlan.ik_option_count` is `None`
+when fast validation omits exact counts. Other objectives retain their behavior.
+The reproducible [stationary benchmark](validation/benchmark_stationary_fast.py)
+uses synthetic IK candidates and real Bullet collisions; its
+[measured results](benchmarks/stationary_fast.json) are workload-specific.
+In exhaustive mode, `ik_option_count` reports the selected base's IK combinations as text: these are independent target
 configuration combinations, not verified motion paths. `path_search_count` is
 0 or 1. Exact path counting is off by default; `path_count` is `not counted`.
 Set `count_paths=True` to compute it as part of the final path search. This does
 not change the chosen path or its cost. If joint-step limits disconnect that path,
 the selected base is still returned with an empty joint plan and explanatory
 status; the component does not build paths for the other bases.
-`solution_counts` reports its feasible configurations per target. `diagnostics`
+In exhaustive mode, `solution_counts` reports its feasible configurations per target. `diagnostics`
 reports each base's coverage and failure reason, including wrong-side and
 over-distance target indices (zero-based). Failed arm checks report raw IK counts,
 counts after joint limits, and the links/tool/environment mesh indices responsible

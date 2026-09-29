@@ -3,10 +3,12 @@ from motion_toolbox.recording import recorded, event
 from dataclasses import dataclass, field
 import math
 from time import perf_counter
+from typing import Optional
 import numpy as np
 from .geometry import Plane, as_plane
 from .planning import candidates, calculate_partial_trajectory, rotation_offsets
 from .graph import shortest_path
+from .execution import high_qos
 
 
 @recorded
@@ -130,13 +132,14 @@ class BasePlan:
     path_count: int = 0
     standoff: float = 0.0
     max_target_distance: float = 0.0
-    ik_option_count: int = 0
+    ik_option_count: Optional[int] = 0
     path_search_count: int = 0
     validation_attempts: int = 0
     base_collision_checks: int = 0
     heuristic_plane: object = None
     ik_solutions_per_node: list = field(default_factory=list)
     target_diagnostics: list = field(default_factory=list)
+    counts_complete: bool = True
 
     @property
     def base_plane(self):
@@ -170,10 +173,11 @@ def evaluate_base_locations(targets, base_candidates, *, ik_solver, collision=No
 
 
 @recorded
+@high_qos
 def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solver,
                          collision=None, transition_check=None, objective='joint_travel',
                          placement_region=None, build_path=True, base_collision=None,
-                         max_validation_attempts=3, **options):
+                         max_validation_attempts=3, fast_validation=True, **options):
     """Return one base that supports a complete connected arm path.
 
     objective='max_paths' maximizes the number of complete valid configuration
@@ -188,6 +192,8 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
     complete path returns empty base_planes/configurations and infinite cost.
     Omit current_pose to optimize only target-to-target travel, without an
     assumed initial configuration or approach transition.
+    Heuristic fast_validation skips unused collision alternatives and leaves
+    counts incomplete. Explicit count_paths=True forces exhaustive validation.
     """
     if not targets:
         raise ValueError('At least one target required for placement search')
@@ -198,7 +204,8 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
             raise ValueError('Heuristic placement checks configurations only')
         return _find_stationary_base_heuristic(targets, base_candidates, current_pose,
             ik_solver, collision, placement_region, build_path, options,
-            base_collision, max_validation_attempts)
+            base_collision, max_validation_attempts,
+            fast_validation and not options.get('count_paths', False))
     if objective == 'ik_options':
         if transition_check is not None or options.get('edge_valid') is not None:
             raise ValueError('ik_options mode checks collisions only at target configurations; omit transition callbacks')
@@ -261,7 +268,7 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
 
 
 def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collision,
-                                   region, build_path, options, base_collision, attempts):
+                                   region, build_path, options, base_collision, attempts, fast=False):
     """Rank geometry only; check base body, then validate a bounded shortlist.
 
     Stop at the first fully reachable position. Collision failures try other
@@ -283,6 +290,9 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
                 path_checked=False, **metrics))
     ranked.sort(key=lambda item: -item[1]['standoff'])
     result = BasePlan([], [], float('inf'), [], diagnostics)
+    result.counts_complete = not fast
+    if fast:
+        result.ik_option_count = None
     tried = []
     previous_standoff = None
     previous_reason = None
@@ -316,8 +326,13 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
             guess = base
         tried.append(np.array(metrics['arm_origin'])[:2])
         previous_standoff = metrics['standoff']
-        candidate = _find_stationary_base_by_options(targets, [base], current_pose,
-            solver, collision, region, build_path, dict(options, _priority_targets=priority_targets))
+        candidate_options = dict(options, _priority_targets=priority_targets)
+        if fast:
+            candidate = _validate_stationary_fast(targets, base, current_pose,
+                solver, collision, metrics, build_path, candidate_options)
+        else:
+            candidate = _find_stationary_base_by_options(targets, [base], current_pose,
+                solver, collision, region, build_path, candidate_options)
         diagnostics.extend(candidate.diagnostics)
         if candidate.base_planes:
             result = candidate
@@ -331,6 +346,90 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
     result.validation_attempts = len(tried)
     result.base_collision_checks = checks
     result.heuristic_plane = guess
+    return result
+
+
+def _validate_stationary_fast(targets, base, start, solver, collision, geometry, build_path, options):
+    """Prove per-target reachability before lazily validating the winner's path."""
+    offsets = rotation_offsets(options.get('rotation_mode', False),
+        options.get('rotation_angle_deg', 5), options.get('rotation_steps', 35),
+        options.get('angle_cw_deg', 0), options.get('angle_ccw_deg', 0))
+    timing = dict(ik_seconds=0., joint_expansion_seconds=0., collision_seconds=0.)
+    diagnostic = dict(base_plane=base, cost=float('inf'), unreachable_points=[],
+        solution_counts_before_filters=[], solution_counts=[], reachable_targets=0,
+        path_count=0, ik_option_count=None, counts_complete=False, ik_checked=True,
+        targets_checked=0, path_checked=False, reason='', timings=timing, **geometry)
+    result = BasePlan([], [], float('inf'), [], [diagnostic], counts_complete=False)
+    result.ik_option_count = None
+    layers, details, checked = {}, {}, {}
+    checker = getattr(collision, '__self__', None)
+
+    def valid(i, j):
+        if (i, j) not in checked:
+            tick = perf_counter()
+            accepted = collision is None or collision(layers[i][j], base)
+            timing['collision_seconds'] += perf_counter()-tick
+            checked[i, j] = accepted
+            stats = details[i]
+            stats['collision_checks'] += int(collision is not None)
+            if accepted:
+                stats['collision_free'] += 1
+            else:
+                stats['collision_rejections'] += 1
+                reason = getattr(checker, 'last_failure', None) or 'collision checker rejected configuration'
+                failures = stats['rejection_reasons']
+                failures[reason] = failures.get(reason, 0)+1
+        return checked[i, j]
+
+    order = list(dict.fromkeys(list(options.get('_priority_targets', [])) + list(range(len(targets)))))
+    for i in order:
+        stats = {}
+        rows, raw, _ = candidates(targets[i], base, solver, offsets, None,
+            options.get('joint_ranges'), stats=stats)
+        layers[i], details[i] = rows, stats
+        timing['ik_seconds'] += stats['ik_seconds']
+        timing['joint_expansion_seconds'] += stats['joint_expansion_seconds']
+        stats.update(collision_free=0, collision_checks=0, collision_rejections=0,
+            collision_check_applied=collision is not None,
+            collision_validation='configurations_only' if collision is not None else 'not_checked')
+        diagnostic['targets_checked'] += 1
+        if not any(valid(i, j) for j in range(len(rows))):
+            diagnostic['unreachable_points'] = [i]
+            diagnostic['reason'] = ('no_ik' if not raw else
+                'joint_limits' if not rows else 'collision')
+            diagnostic['failed_target_details'] = dict(target_index=i, **stats)
+            break
+        diagnostic['reachable_targets'] += 1
+    diagnostic['checked_target_indices'] = sorted(layers)
+    diagnostic['solution_counts_before_filters'] = [details[i]['raw_ik'] for i in sorted(layers)]
+    if not diagnostic['unreachable_points']:
+        result.base_planes = [base]
+        result.standoff = geometry.get('standoff', 0.)
+        result.max_target_distance = geometry.get('max_target_distance', 0.)
+        diagnostic['reason'] = 'all_targets_reachable'
+        if build_path:
+            tick = perf_counter()
+            graph_stats = {}
+            # Reachability probes already proved some nodes invalid. Remove
+            # those before the first graph solve, retaining candidate order.
+            indices = [[j for j in range(len(layers[i])) if checked.get((i, j), True)]
+                       for i in range(len(targets))]
+            def graph_valid(i, j):
+                return valid(i, indices[i][j])
+            def rejected_layer(i, j):
+                return [k for k in range(len(indices[i])) if not graph_valid(i, k)]
+            solved = shortest_path([[layers[i][j] for j in ids] for i, ids in enumerate(indices)], start=start,
+                max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
+                weights=options.get('weights'), count_paths=False,
+                revolute_joints=getattr(solver, 'revolute_joints', None),
+                node_valid=graph_valid, node_rejection_group=rejected_layer, stats=graph_stats)
+            timing['path_seconds'] = graph_stats.get('graph_seconds', perf_counter()-tick)
+            diagnostic['graph_solves'] = graph_stats.get('graph_solves', 0)
+            result.configurations, result.cost = solved.configurations, solved.cost
+            result.path_search_count = 1
+            diagnostic.update(path_checked=True, cost=solved.cost,
+                reason='complete' if solved.configurations else 'joint_step_disconnected')
+    diagnostic['collision_checks'] = sum(d['collision_checks'] for d in details.values())
     return result
 
 

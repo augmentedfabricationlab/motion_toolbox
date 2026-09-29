@@ -39,6 +39,8 @@ Arm validation and path:
   max_joint_step   Item, float (2.5): radians per arm joint per target step
   build_path       Item, bool (True): build one joint path for the selected base only
   count_paths      Item, bool (False): also count every possible joint path (slower)
+  fast_validation Item, bool (True): skip unused collision alternatives;
+                   False restores exact counts. count_paths=True overrides this.
   collision_meshes List, Mesh: wall and environment obstacles
                    (needed for full-body wall clearance)
   collision_check Item, bool (True): model/tool/environment at target configurations only
@@ -62,8 +64,9 @@ Arm results:
   joint_plan: DataTree, one branch per target.
   path_cost: joint-path cost.
   path_count: exact integer text when count_paths=True; otherwise "not counted".
-  solution_counts: feasible configurations per target at the selected base.
-  ik_option_count: product of those configuration counts, as text.
+  solution_counts: exact feasible configurations per target; [] in fast mode.
+  ik_option_count: product of exact counts, or "not counted" in fast mode.
+  counts_complete: whether exhaustive configuration counts are available.
 
 Diagnostics and timing:
   status, diagnostics: summary and detailed results.
@@ -131,6 +134,7 @@ base_plane, joint_plan, path_cost = None, None, None
 diagnostics, candidate_count, status = [], 0, ''
 path_count, solution_counts = '0', []
 ik_option_count, path_search_count = '0', 0
+counts_complete = False
 initial_guesses = []
 initial_base_plane = None
 validation_attempts, base_collision_checks = 0, 0
@@ -172,6 +176,8 @@ try:
     pipeline_names = (
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
+        'motion_toolbox.execution', 'motion_toolbox.robot_adapter',
+        'motion_toolbox.base_collision', 'motion_toolbox.collision',
         'motion_toolbox.base_planning', 'motion_toolbox.stationary_region',
         'motion_toolbox.robot_planning',
     )
@@ -182,7 +188,7 @@ try:
         return str(path), stat.st_mtime_ns, stat.st_size
     base_module = pipeline[pipeline_names.index('motion_toolbox.base_planning')]
     graph_module = pipeline[pipeline_names.index('motion_toolbox.graph')]
-    planner_arguments = {'objective', 'placement_region', 'build_path', 'base_collision', 'max_validation_attempts'}
+    planner_arguments = {'objective', 'placement_region', 'build_path', 'base_collision', 'max_validation_attempts', 'fast_validation'}
     stale = any(getattr(module, '_stationary_loaded_stamp', None) != source_stamp(module)
                 for module in pipeline)
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
@@ -246,9 +252,9 @@ try:
         scene = None
         if enabled:
             import motion_toolbox.collision as collision_module
-            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 8:
+            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 12:
                 collision_module = importlib.reload(collision_module)
-            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 8:
+            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 12:
                 raise RuntimeError('Outdated collision module: ' + str(collision_module.__file__))
             PybulletServer = collision_module.PybulletServer
             scene = stack.enter_context(PybulletServer(robot=model, joint_names=names,
@@ -261,6 +267,7 @@ try:
             objective='heuristic', placement_region=region, build_path=_input('build_path', True),
             base_collision=scene.is_base_valid if scene else None,
             max_validation_attempts=_input('max_validation_attempts', 3),
+            fast_validation=_input('fast_validation', True),
             count_paths=_input('count_paths', False),
             collision=scene.is_valid if scene else None,
             rotation_mode='n_steps', rotation_steps=_input('rotation_steps', 8),
@@ -271,11 +278,14 @@ try:
             timings[name] = timings.get(name, 0.0)+seconds
     validation_attempts, base_collision_checks = found.validation_attempts, found.base_collision_checks
     initial_base_plane = to_rhino(found.heuristic_plane, 1/scale) if found.heuristic_plane is not None else None
-    path_search_count, ik_option_count = found.path_search_count, str(Decimal(found.ik_option_count))
+    counts_complete = found.counts_complete
+    path_search_count = found.path_search_count
+    ik_option_count = str(Decimal(found.ik_option_count)) if counts_complete else 'not counted'
     diagnostics = ['Base {}: {}; IK checked {}; reachable {} of {} checked targets ({} total); solutions {}; path checked {}; '
         'standoff {:.3f} m; farthest 3D {:.3f} m; wrong-side targets {}; too-far XY targets {}'.format(
         i, d['reason'], d['ik_checked'], d['reachable_targets'], d['targets_checked'], len(targets),
-        '{}-{} per target'.format(min(d['solution_counts']), max(d['solution_counts'])) if d['solution_counts'] else 'none',
+        ('not counted' if d.get('counts_complete') is False else
+         ('{}-{} per target'.format(min(d['solution_counts']), max(d['solution_counts'])) if d['solution_counts'] else 'none')),
         d['path_checked'], d['standoff'], d['max_target_distance'],
         d['wrong_side_points'], d['too_far_points'])
         for i, d in enumerate(found.diagnostics)]
@@ -295,6 +305,8 @@ try:
             detail['collision_free'], '; '.join('{} ({} rejections)'.format(reason, count) for reason, count in rejected[:3]))
         failure_details.append(text)
     diagnostics.extend(failure_details)
+    if not counts_complete:
+        diagnostics.append('Fast validation: alternative configuration counts not counted. Set fast_validation=False for exact counts.')
     joint_plan = DataTree[float]()
     if found.base_planes:
         base_plane = to_rhino(found.base_plane, 1/scale)
@@ -331,6 +343,7 @@ try:
             status += ' Placement constraints or base collisions rejected the candidates.'
         status += ' See diagnostics for details.'
 except Exception as error:
+    counts_complete = False
     base_plane, joint_plan, path_cost = None, None, None
     path_count, solution_counts = '0', []
     ik_option_count, path_search_count = '0', 0

@@ -4,7 +4,26 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
-## Unreleased
+## 0.1.46 - 2026-09-29
+
+- Default stationary heuristic planning to fast validation: prove each target
+  reachable, then collision-check proposed shortest paths and complete rejected
+  layers as needed. Preserve placement retries, selected paths/costs, detailed
+  collision geometry and disconnected-path behavior.
+- Add fast_validation=False for exhaustive counts; count_paths=True forces it.
+  Fast GH outputs use solution_counts=[], ik_option_count="not counted" and
+  counts_complete=False (Python BasePlan.ik_option_count is None). Other planner
+  objectives retain their behavior. No dependency changes.
+- Request scoped Windows HighQoS during stationary planning and refresh cached
+  collision dependencies in Rhino. Synchronize the general GH component's
+  package-version guard so repeated recomputes avoid unnecessary reloads.
+- Validation: 346 tests pass, including fast/exhaustive path equivalence,
+  retries, failures, counts, GH recomputes and CPU-policy restoration. A benchmark
+  with synthetic IK candidates and real Bullet collisions (150 targets, 48
+  candidates, three-run medians) reduced clear-case checks from 7200 to 150 and
+  total time from 0.787 s to 0.181 s; collision-heavy checks fell to 3750 and time
+  from 0.427 s to 0.279 s. Both modes returned identical paths and costs. See
+  benchmarks/stationary_fast.json; these are not captured-robot timings.
 
 - Keep the Grasshopper export input/output reference in the component file;
   remove the separate document and clarify which script Grasshopper should load.

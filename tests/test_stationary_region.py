@@ -156,7 +156,8 @@ def test_body_blocked_candidates_never_trigger_ik():
     assert result.base_collision_checks == 1
 
 
-def test_collision_retry_changes_heading_and_checks_failed_target_first():
+@pytest.mark.parametrize('fast', [False, True])
+def test_collision_retry_changes_heading_and_checks_failed_target_first(fast):
     targets = [wall(x) for x in (0, .1, .2)]
     region = StationaryRegion(targets, mounting(), projected=True)
     first = footprint(y=-1.3)
@@ -168,12 +169,13 @@ def test_collision_retry_changes_heading_and_checks_failed_target_first():
     def collision(q, b):
         return q[0] < .2 or b.xaxis[0] == 0
     result = find_stationary_base(targets, [first, turned, footprint(y=-.9)],
-        ik_solver=ik, collision=collision, objective='heuristic', placement_region=region)
+        ik_solver=ik, collision=collision, objective='heuristic', placement_region=region,
+        fast_validation=fast)
     assert result.validation_attempts == 2
     assert result.base_plane.xaxis == pytest.approx(turned.xaxis)
     assert events == [(0,1),(.1,1),(.2,1),(.2,0),(0,0),(.1,0)]
     assert result.configurations == [[0], [.1], [.2]]
-    assert result.candidate_counts == [1, 1, 1]
+    assert result.candidate_counts == ([] if fast else [1, 1, 1])
     assert result.path_search_count == 1
 
 
