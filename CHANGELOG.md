@@ -4,6 +4,19 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.47 - 2026-09-29
+
+- Add planned_tcp to the stationary Grasshopper component: selected world TCP
+  planes in input model units, including the chosen TCP-Z rotations and original
+  target ordering. Track candidate rotations through fast and exhaustive
+  validation without repeating IK or collision checks.
+- Clear the output on failures, disconnected joint paths and build_path=False.
+  Collision validation continues to follow collision_check; transitions remain
+  unchecked. No dependency changes.
+- Validation: all 354 tests pass, including nonzero TCP
+  rotations after collision filtering, fast/exhaustive modes, exact path counting,
+  metre/millimetre output conversion and empty outputs without a joint path.
+
 ## 0.1.46 - 2026-09-29
 
 - Default stationary heuristic planning to fast validation: prove each target

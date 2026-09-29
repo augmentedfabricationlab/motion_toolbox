@@ -486,6 +486,11 @@ Set `count_paths=True` to compute it as part of the final path search. This does
 not change the chosen path or its cost. If joint-step limits disconnect that path,
 the selected base is still returned with an empty joint plan and explanatory
 status; the component does not build paths for the other bases.
+`planned_tcp` is a list of world TCP planes in input model units, including the
+TCP-Z rotations selected for the joint path, in original target order. Add an
+output named `planned_tcp` to the GH component. It is empty when no complete
+path exists, `build_path=False`, or an error occurs. Collision validation follows
+`collision_check`; transitions remain unchecked.
 In exhaustive mode, `solution_counts` reports its feasible configurations per target. `diagnostics`
 reports each base's coverage and failure reason, including wrong-side and
 over-distance target indices (zero-based). Failed arm checks report raw IK counts,

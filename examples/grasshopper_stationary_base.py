@@ -61,6 +61,10 @@ Placement:
                        metres.
 
 Arm results:
+  planned_tcp: List, Plane: selected world TCP waypoints in input model units,
+               including selected TCP-Z rotations, in original target order.
+               Empty without a complete joint path (also when build_path=False).
+               Collision validation follows collision_check; transitions are unchecked.
   joint_plan: DataTree, one branch per target.
   path_cost: joint-path cost.
   path_count: exact integer text when count_paths=True; otherwise "not counted".
@@ -131,6 +135,7 @@ def _input(name, default=None):
 
 
 base_plane, joint_plan, path_cost = None, None, None
+planned_tcp = []
 diagnostics, candidate_count, status = [], 0, ''
 path_count, solution_counts = '0', []
 ik_option_count, path_search_count = '0', 0
@@ -193,6 +198,7 @@ try:
                 for module in pipeline)
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
+    stale = stale or 'selected_target_planes' not in getattr(base_module.BasePlan, '__dataclass_fields__', {})
     if stale:
         importlib.invalidate_caches()
         for module in pipeline:
@@ -273,6 +279,7 @@ try:
             rotation_mode='n_steps', rotation_steps=_input('rotation_steps', 8),
             joint_ranges=ranges, periodic=periodic, max_joint_step=_input('max_joint_step', 2.5))
     path_cost = found.cost if found.path_search_count else None
+    planned_tcp = [to_rhino(p, 1/scale) for p in found.selected_target_planes]
     for diagnostic in found.diagnostics:
         for name, seconds in diagnostic.get('timings', {}).items():
             timings[name] = timings.get(name, 0.0)+seconds
@@ -343,6 +350,7 @@ try:
             status += ' Placement constraints or base collisions rejected the candidates.'
         status += ' See diagnostics for details.'
 except Exception as error:
+    planned_tcp = []
     counts_complete = False
     base_plane, joint_plan, path_cost = None, None, None
     path_count, solution_counts = '0', []

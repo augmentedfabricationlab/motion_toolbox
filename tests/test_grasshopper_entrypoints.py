@@ -407,6 +407,31 @@ def test_stationary_exact_count_toggle(gh, settings):
     assert int(out['ik_option_count']) > 0
 
 
+@pytest.mark.parametrize('settings', [dict(fast_validation=True), dict(fast_validation=False), dict(count_paths=True)])
+@pytest.mark.parametrize('scale', [1., .001])
+def test_stationary_planned_tcp_matches_chosen_path_in_model_units(gh, monkeypatch, settings, scale):
+    robot, q, targets, _ = robot_fixture()
+    # A tight approach bound selects the original TCP, a nonzero sampled rotation.
+    expected = targets[0]
+    target = expected.rotated_z(-np.pi/2)
+    target = Plane(target.origin/scale, target.xaxis, target.yaxis)
+    monkeypatch.setattr('motion_toolbox.geometry.to_rhino',
+        lambda p, scale=1: Plane(p.origin*scale, p.xaxis, p.yaxis))
+    inputs = dict(robot=robot, target_planes=[target], current_pose=q,
+        candidate_planes=[Plane.world_xy()], arm_in_base=Plane.world_xy(),
+        units_to_metres=scale, rotation_steps=4, max_joint_step=.01,
+        collision_check=False, **settings)
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    result = runpy.run_path(script, init_globals=inputs)
+    assert len(result['planned_tcp']) == 1, result['status']
+    selected = result['planned_tcp'][0]
+    np.testing.assert_allclose(selected.origin, expected.origin/scale, atol=1e-8)
+    np.testing.assert_allclose(selected.xaxis, expected.xaxis, atol=1e-8)
+    np.testing.assert_allclose(selected.zaxis, expected.zaxis, atol=1e-8)
+    assert runpy.run_path(script, init_globals=dict(inputs, build_path=False))['planned_tcp'] == []
+    assert runpy.run_path(script, init_globals=dict(inputs, units_to_metres=-1))['planned_tcp'] == []
+
+
 def test_stationary_refreshes_collision_source_and_dependencies(gh, monkeypatch):
     import motion_toolbox.collision as collision
     import motion_toolbox.base_collision as base_collision

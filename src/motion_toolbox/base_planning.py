@@ -140,6 +140,8 @@ class BasePlan:
     ik_solutions_per_node: list = field(default_factory=list)
     target_diagnostics: list = field(default_factory=list)
     counts_complete: bool = True
+    selected_target_planes: list = field(default_factory=list)
+    selected_tcp_rotations: list = field(default_factory=list)
 
     @property
     def base_plane(self):
@@ -361,7 +363,7 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
         targets_checked=0, path_checked=False, reason='', timings=timing, **geometry)
     result = BasePlan([], [], float('inf'), [], [diagnostic], counts_complete=False)
     result.ik_option_count = None
-    layers, details, checked = {}, {}, {}
+    layers, details, checked, layer_angles = {}, {}, {}, {}
     checker = getattr(collision, '__self__', None)
 
     def valid(i, j):
@@ -384,8 +386,10 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
     order = list(dict.fromkeys(list(options.get('_priority_targets', [])) + list(range(len(targets)))))
     for i in order:
         stats = {}
+        angles = []
         rows, raw, _ = candidates(targets[i], base, solver, offsets, None,
-            options.get('joint_ranges'), stats=stats)
+            options.get('joint_ranges'), stats=stats, candidate_angles=angles)
+        layer_angles[i] = angles
         layers[i], details[i] = rows, stats
         timing['ik_seconds'] += stats['ik_seconds']
         timing['joint_expansion_seconds'] += stats['joint_expansion_seconds']
@@ -426,6 +430,11 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
             timing['path_seconds'] = graph_stats.get('graph_seconds', perf_counter()-tick)
             diagnostic['graph_solves'] = graph_stats.get('graph_solves', 0)
             result.configurations, result.cost = solved.configurations, solved.cost
+            if solved.configurations:
+                result.selected_tcp_rotations = [layer_angles[i][indices[i][j]]
+                                                 for i, j in enumerate(solved.indices)]
+                result.selected_target_planes = [as_plane(t).rotated_z(a)
+                    for t, a in zip(targets, result.selected_tcp_rotations)]
             result.path_search_count = 1
             diagnostic.update(path_checked=True, cost=solved.cost,
                 reason='complete' if solved.configurations else 'joint_step_disconnected')
@@ -440,7 +449,7 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         options.get('rotation_angle_deg', 5), options.get('rotation_steps', 35),
         options.get('angle_cw_deg', 0), options.get('angle_ccw_deg', 0))
     best = BasePlan([], [], float('inf'), [], [])
-    best_layers, best_rank, selected = None, None, None
+    best_layers, best_rank, selected, best_angles = None, None, None, None
     for base in bases:
         base = as_plane(base)
         geometry = region.metrics(base) if region is not None else {}
@@ -458,14 +467,17 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
             diagnostic['reason'] = '+'.join(reasons)
             diagnostic['unreachable_points'] = sorted(set(geometry['wrong_side_points']+geometry['too_far_points']))
             continue
-        layers, raw = {}, {}
+        layers, raw, layer_angles = {}, {}, {}
         diagnostic['timings'] = dict(ik_seconds=0.0, joint_expansion_seconds=0.0, collision_seconds=0.0)
         priority = options.get('_priority_targets', [])
         order = list(dict.fromkeys(list(priority) + list(range(len(targets)))))
         for i in order:
             target = targets[i]
             stats = {}
-            qs, before, _ = candidates(target, base, solver, offsets, collision, options.get('joint_ranges'), stats=stats)
+            angles = []
+            qs, before, _ = candidates(target, base, solver, offsets, collision,
+                options.get('joint_ranges'), stats=stats, candidate_angles=angles)
+            layer_angles[i] = angles
             for name in diagnostic['timings']:
                 diagnostic['timings'][name] += stats[name]
             layers[i] = qs
@@ -492,6 +504,7 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         rank = (-combinations, -standoff)
         if best_rank is None or rank < best_rank:
             best_rank, best_layers, selected = rank, layers, diagnostic
+            best_angles = [layer_angles[i] for i in checked]
             best.base_planes, best.candidate_counts = [base], counts
             best.ik_option_count, best.standoff = combinations, standoff
             best.max_target_distance = geometry.get('max_target_distance', 0.0)
@@ -503,6 +516,10 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
             revolute_joints=getattr(solver, 'revolute_joints', None))
         selected['timings']['path_seconds'] = perf_counter()-path_started
         best.configurations, best.cost, best.path_count = solved.configurations, solved.cost, solved.path_count
+        if solved.configurations:
+            best.selected_tcp_rotations = [best_angles[i][j] for i, j in enumerate(solved.indices)]
+            best.selected_target_planes = [as_plane(t).rotated_z(a)
+                for t, a in zip(targets, best.selected_tcp_rotations)]
         best.path_search_count = 1
         selected.update(path_checked=True, path_count=solved.path_count, cost=solved.cost,
             reason='complete' if solved.configurations else 'joint_step_disconnected')

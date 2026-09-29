@@ -59,6 +59,7 @@ def test_disconnection_keeps_selected_base(collision):
     eager, fast = [plan(layers, mode, collision, count_paths=False) for mode in (False, True)]
     assert fast.base_planes and eager.base_planes
     assert fast.configurations == eager.configurations == []
+    assert fast.selected_target_planes == eager.selected_target_planes == []
     assert fast.diagnostics[-1]['reason'] == eager.diagnostics[-1]['reason'] == 'joint_step_disconnected'
 
 
@@ -89,3 +90,19 @@ def test_stationary_restores_cpu_policy(monkeypatch, fail):
     else:
         plan([[[0.]]])
     assert controller.states == [(1, 3, 2), (1, 2, 2)]
+
+
+@pytest.mark.parametrize('fast', [True, False])
+def test_selected_tcp_tracks_rotation_after_collision_pruning(fast):
+    targets, base, region = problem(3)
+    def ik(target, base):
+        angle = np.arctan2(-target.xaxis[2], target.xaxis[0]) % (2*np.pi)
+        return [[float(round(angle/(np.pi/2)))]]
+    result = find_stationary_base(targets, [base], current_pose=[2.],
+        objective='heuristic', placement_region=region, fast_validation=fast,
+        ik_solver=ik, rotation_mode='n_steps', rotation_steps=4,
+        collision=lambda q,b: q[0] in (1., 3.), count_paths=False)
+    assert result.configurations == [[1.]]*3
+    assert result.selected_tcp_rotations == pytest.approx([np.pi/2]*3)
+    for target, selected in zip(targets, result.selected_target_planes):
+        np.testing.assert_allclose(selected.matrix, target.rotated_z(np.pi/2).matrix)
