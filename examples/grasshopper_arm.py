@@ -62,34 +62,38 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 8 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.50':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.51':
         importlib.reload(motion_toolbox)
 
     names = (
+        'motion_toolbox.execution',
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter', 'motion_toolbox.collision',
         'motion_toolbox.base_planning',
         'motion_toolbox.robot_planning',
     )
-    modules = [importlib.import_module(name) for name in names]
+    modules = [sys.modules.get(name) for name in names]
     def stamp(module):
         path = Path(module.__file__).resolve()
         stat = path.stat()
         return str(path), stat.st_mtime_ns, stat.st_size
 
-    parameters = inspect.signature(modules[-1].plan_robot).parameters
-    stale = ('current_pose' not in parameters or
-             parameters['current_pose'].default is inspect.Parameter.empty)
-    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 21
-    stale = stale or any(
-        getattr(module, '_robot_component_stamp', None) != stamp(module)
+    stale = any(
+        module is None or getattr(module, '_robot_component_stamp', None) != stamp(module)
         for module in modules)
+    stale = stale or not callable(getattr(modules[0], 'check_cancel', None))
+    if not stale:
+        parameters = inspect.signature(modules[-1].plan_robot).parameters
+        stale = ('current_pose' not in parameters or
+                 parameters['current_pose'].default is inspect.Parameter.empty)
+    stale = stale or getattr(modules[-1], 'ROBOT_COMPONENT_VERSION', 0) < 21
     if stale:
         importlib.invalidate_caches()
         # Reload dependencies before their consumers so from-imports agree.
-        for module in modules:
-            importlib.reload(module)
+        for index, name in enumerate(names):
+            cached = sys.modules.get(name)
+            modules[index] = importlib.import_module(name) if cached is None else importlib.reload(cached)
     for module in modules:
         module._robot_component_stamp = stamp(module)
 

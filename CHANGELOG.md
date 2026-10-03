@@ -4,6 +4,19 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.51 - 2026-10-03
+
+- Fix Rhino upgrade/recompute failures importing check_cancel from a cached older
+  execution module. Stationary and arm loaders inspect cached modules first,
+  then refresh dependencies before importing or refreshing consumers, including
+  newly installed workflows. Unchanged recomputes retain their existing modules.
+- Include execution in the arm dependency chain and refresh it first in the
+  mobile component. Planner inputs, outputs, collision coverage and search
+  behavior are unchanged; no dependency changes.
+- Validation: reproduce the reported ImportError before the fix; all 402 tests
+  pass afterward, including 47 GH entry-point tests, cached and first-import consumers
+  and consistent from-import bindings to the refreshed cancellation helper.
+
 ## 0.1.50 - 2026-10-03
 
 - Add a shared robot-facing stationary workflow and move Grasshopper setup into

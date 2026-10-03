@@ -427,6 +427,33 @@ def test_stationary_does_not_reload_unchanged_pipeline_on_recompute(gh, monkeypa
     assert first['path_count'] == second['path_count']
 
 
+@pytest.mark.parametrize('filename', ['grasshopper_stationary_base.py', 'grasshopper_arm.py'])
+@pytest.mark.parametrize('cached_consumers', [False, True])
+def test_components_refresh_execution_before_importing_consumers(gh, monkeypatch, filename, cached_consumers):
+    import motion_toolbox
+    import motion_toolbox.execution as execution
+    robot, _, targets, _ = robot_fixture()
+    inputs = dict(robot=robot, target_planes=targets, candidate_planes=[Plane.world_xy()],
+                  arm_in_base=Plane.world_xy(), rotation_steps=1, collision_check=False)
+    script = str(EXAMPLES/filename)
+    first = runpy.run_path(script, init_globals=inputs)
+    assert first['planned_tcp'], first['status']
+    # An older Rhino session has execution cached without the newly added API.
+    monkeypatch.delattr(execution, 'check_cancel')
+    if not cached_consumers:
+        # A newly installed workflow can fail during its FIRST import, before a
+        # loader that eagerly imports every module ever reaches its reload loop.
+        for suffix in ('base_planning', 'stationary_workflow'):
+            monkeypatch.delitem(sys.modules, 'motion_toolbox.'+suffix, raising=False)
+            monkeypatch.delattr(motion_toolbox, suffix, raising=False)
+    output = runpy.run_path(script, init_globals=inputs)
+    assert output['planned_tcp'], output['status']
+    assert callable(execution.check_cancel)
+    assert sys.modules['motion_toolbox.base_planning'].check_cancel is execution.check_cancel
+    if filename == 'grasshopper_stationary_base.py':
+        assert sys.modules['motion_toolbox.stationary_workflow'].check_cancel is execution.check_cancel
+
+
 @pytest.mark.parametrize('settings', [dict(fast_validation=False), dict(count_paths=True)])
 def test_stationary_exact_count_toggle(gh, settings):
     robot, _, targets, _ = robot_fixture()

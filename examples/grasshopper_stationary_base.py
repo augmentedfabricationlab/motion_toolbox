@@ -216,14 +216,17 @@ try:
     # Reload the planning dependency chain together: refreshing only the adapter
     # leaves old imported functions in base_planning/planning alive in Rhino.
     pipeline_names = (
-        'motion_toolbox', 'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
+        'motion_toolbox', 'motion_toolbox.execution',
+        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
-        'motion_toolbox.execution', 'motion_toolbox.robot_adapter',
+        'motion_toolbox.robot_adapter',
         'motion_toolbox.base_collision', 'motion_toolbox.collision',
         'motion_toolbox.base_planning', 'motion_toolbox.stationary_region',
         'motion_toolbox.robot_planning', 'motion_toolbox.stationary_workflow',
     )
-    pipeline = [importlib.import_module(name) for name in pipeline_names]
+    # Inspect cached modules without importing new consumers first: a new
+    # workflow can import APIs absent from a still-cached dependency.
+    pipeline = [sys.modules.get(name) for name in pipeline_names]
     def source_stamp(module):
         path = Path(module.__file__).resolve()
         stat = path.stat()
@@ -231,8 +234,9 @@ try:
     base_module = pipeline[pipeline_names.index('motion_toolbox.base_planning')]
     graph_module = pipeline[pipeline_names.index('motion_toolbox.graph')]
     planner_arguments = {'objective', 'placement_region', 'build_path', 'base_collision', 'max_validation_attempts', 'fast_validation'}
-    stale = any(getattr(module, '_stationary_loaded_stamp', None) != source_stamp(module)
+    stale = any(module is None or getattr(module, '_stationary_loaded_stamp', None) != source_stamp(module)
                 for module in pipeline)
+    stale = stale or not callable(getattr(sys.modules.get('motion_toolbox.execution'), 'check_cancel', None))
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
     result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail'}
@@ -241,9 +245,14 @@ try:
     stale = stale or getattr(pipeline[pipeline_names.index('motion_toolbox.collision')], 'COLLISION_API_VERSION', 0) < 12
     if stale:
         importlib.invalidate_caches()
-        for module in pipeline:
-            importlib.reload(module)
+        for index, name in enumerate(pipeline_names):
+            # Each dependency is current before importing/reloading its users.
+            cached = sys.modules.get(name)
+            module = importlib.import_module(name) if cached is None else importlib.reload(cached)
             module._stationary_loaded_stamp = source_stamp(module)
+            pipeline[index] = module
+        base_module = pipeline[pipeline_names.index('motion_toolbox.base_planning')]
+        graph_module = pipeline[pipeline_names.index('motion_toolbox.graph')]
     if (not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
         or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
         or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
