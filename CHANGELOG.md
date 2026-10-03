@@ -4,6 +4,35 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.50 - 2026-10-03
+
+- Add a shared robot-facing stationary workflow and move Grasshopper setup into
+  it. Check supplied starting poses against joint limits and configuration
+  collisions before target IK; collision failures retain bounded heading retries.
+- Expose path_complete/valid, starting-state failures, unreachable targets and
+  disconnected-transition details. Keep selected-base behavior on disconnection;
+  valid requires a complete path with configuration collision checking enabled.
+- Accept named starting Configurations and return named fixed-joint/arm
+  configurations alongside the existing six-arm-joint DataTree. Add optional
+  per-joint speed limits and transition durations without relaxing max_joint_step.
+- Add collision JSON settings for clearance, ground/support links, allowed pairs,
+  geometry and asset settings. Reuse externally supplied scenes without closing
+  them; retain detailed base geometry and GPS coverage by default.
+- Add staged progress and cooperative cancellation through geometry, IK,
+  collision and graph work. Clear cancelled outputs and restore CPU policy;
+  retain the cancellation exception's identity across Rhino module refreshes.
+- Group setup, geometry, validation and final outputs in one recording (or reuse
+  an enclosing run), honoring the existing recording opt-out. Expose effective
+  settings, run location, package version and loaded-code/file fingerprints.
+- Preserve the grasshopper_arm.py rename and 16-rotation defaults from 0.1.49.
+  No dependency changes. Document all new GH input/output parameters.
+- Validation: 398 tests pass, covering fast/exhaustive results, speed limits,
+  initial-state rejection/retries, named configurations, scene ownership/options,
+  cancellation/reloads and recording metadata. The synthetic-IK/Bullet benchmark
+  retains identical paths/costs; fast mode uses 150 versus 7200 clear-case collision
+  checks and 3750 versus 7200 collision-heavy checks. Recorded timings are in
+  benchmarks/stationary_features_0_1_50.json and are workload-specific.
+
 ## 0.1.49 - 2026-10-03
 
 - Rename examples/grasshopper.py to examples/grasshopper_arm.py; update current

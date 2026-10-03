@@ -14,6 +14,19 @@ from .recording import event
 _local = threading.local()
 
 
+# Rhino refreshes this module while callers may retain a from-imported exception.
+# Keep its identity stable so their except/raises clauses continue to work.
+if 'PlanningCancelled' not in globals():
+    class PlanningCancelled(RuntimeError):
+        """Cooperative cancellation; no partial trajectory should be published."""
+
+
+def check_cancel(callback):
+    """Callbacks may return True to cancel or raise PlanningCancelled."""
+    if callback is not None and callback():
+        raise PlanningCancelled('Planning cancelled')
+
+
 class _WindowsThreadPolicy:
     def __init__(self):
         import ctypes

@@ -98,11 +98,40 @@ def test_selected_tcp_tracks_rotation_after_collision_pruning(fast):
     def ik(target, base):
         angle = np.arctan2(-target.xaxis[2], target.xaxis[0]) % (2*np.pi)
         return [[float(round(angle/(np.pi/2)))]]
-    result = find_stationary_base(targets, [base], current_pose=[2.],
+    result = find_stationary_base(targets, [base], current_pose=[1.9],
         objective='heuristic', placement_region=region, fast_validation=fast,
         ik_solver=ik, rotation_mode='n_steps', rotation_steps=4,
-        collision=lambda q,b: q[0] in (1., 3.), count_paths=False)
+        collision=lambda q,b: q[0] not in (0., 2.), count_paths=False)
     assert result.configurations == [[1.]]*3
     assert result.selected_tcp_rotations == pytest.approx([np.pi/2]*3)
     for target, selected in zip(targets, result.selected_target_planes):
         np.testing.assert_allclose(selected.matrix, target.rotated_z(np.pi/2).matrix)
+
+
+@pytest.mark.parametrize('fast', [False, True])
+def test_initial_collision_retries_heading_before_ik(fast):
+    targets, base, region = problem(2)
+    turned = Plane(base.origin, (0, 1, 0), (-1, 0, 0))
+    calls = []
+    def solver(t, b):
+        calls.append(b)
+        return [[.2]]
+    result = find_stationary_base(targets, [base, turned], current_pose=[0.],
+        objective='heuristic', placement_region=region, fast_validation=fast,
+        collision=lambda q,b: q != [0.] or b.xaxis[0] == 0, ik_solver=solver)
+    assert result.base_plane is turned
+    assert result.validation_attempts == 2 and result.initial_state_failure is None
+    assert result.diagnostics[0]['reason'] == 'initial_collision'
+    assert len(calls) == 2 and all(b is turned for b in calls)
+
+
+def test_cancellation_during_candidate_generation():
+    from motion_toolbox.execution import PlanningCancelled
+    from motion_toolbox.planning import candidates
+    ticks = []
+    def cancel():
+        ticks.append(1)
+        return len(ticks) == 3
+    with pytest.raises(PlanningCancelled):
+        candidates(Plane.world_xy(), Plane.world_xy(), lambda t,b: [[0.], [1.]],
+                   [0., 1.], cancel_check=cancel)

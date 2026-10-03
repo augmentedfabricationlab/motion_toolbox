@@ -79,3 +79,11 @@ def test_decorator_reports_restoration_and_preserves_signature(monkeypatch):
         return dict(value=value)
     assert str(inspect.signature(compute)) == '(value=42)'
     assert compute()['execution_policy']['restored']
+
+
+def test_cancellation_exception_survives_rhino_reload():
+    import importlib
+    from motion_toolbox.execution import PlanningCancelled
+    importlib.reload(execution)
+    with pytest.raises(PlanningCancelled):
+        execution.check_cancel(lambda: True)

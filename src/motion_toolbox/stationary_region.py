@@ -101,7 +101,8 @@ class StationaryRegion:
         return polygon
 
     @recorded
-    def polygon(self):
+    def polygon(self, *, cancel_check=None):
+        from .execution import check_cancel
         radii_squared = np.full(len(self.points), self.max_distance**2) if self.projected else self.max_distance**2-(self.points[:, 2]-self.height)**2
         if np.any(radii_squared < 0):
             return np.empty((0, 2)), 'Target height exceeds {} m reach limit at this arm-base height.'.format(self.max_distance)
@@ -118,6 +119,7 @@ class StationaryRegion:
         angles = (np.arange(sides)+.5)*2*math.pi/sides
         normals = np.column_stack((np.cos(angles), np.sin(angles)))
         for point, radius in zip(self.xy, radii):
+            check_cancel(cancel_check)
             inradius = radius*math.cos(math.pi/sides)
             if np.all(np.linalg.norm(polygon-point, axis=1) <= inradius):
                 continue
@@ -128,7 +130,7 @@ class StationaryRegion:
         return polygon, ''
 
     @recorded
-    def candidates(self, *, spacing=.5, yaw_steps=4):
+    def candidates(self, *, spacing=.5, yaw_steps=4, cancel_check=None):
         """Return (all footprints, initial guesses, region explanation).
 
         Seed by maximizing the minimum signed distance behind all target planes.
@@ -139,12 +141,15 @@ class StationaryRegion:
             raise ValueError('Positive finite grid spacing required')
         if int(yaw_steps) != yaw_steps or yaw_steps < 1:
             raise ValueError('yaw_steps must be a positive integer')
-        polygon, reason = self.polygon()
+        from .execution import check_cancel
+        check_cancel(cancel_check)
+        polygon, reason = self.polygon(cancel_check=cancel_check)
         if not len(polygon):
             return [], [], reason
         lo, hi = self.side_epsilon, self.max_distance
         farthest = polygon
         for _ in range(32):
+            check_cancel(cancel_check)
             middle = (lo+hi)/2
             clipped = self._behind(polygon, middle)
             if len(clipped):
@@ -166,9 +171,11 @@ class StationaryRegion:
                 boundary.append(closed[i]*(1-t)+closed[i+1]*t)
         lower, upper = polygon.min(axis=0), polygon.max(axis=0)
         axes = [np.linspace(a, b, int(math.ceil((b-a)/spacing))+1) for a,b in zip(lower, upper)]
-        samples = seed_points + boundary + [np.array((x,y)) for x in axes[0] for y in axes[1]]
+        from itertools import chain
+        samples = chain(seed_points, boundary, (np.array((x,y)) for x in axes[0] for y in axes[1]))
         result, guesses, seen, standoffs = [], [], set(), {}
         for i, point in enumerate(samples):
+            check_cancel(cancel_check)
             arm_xy = point+self.center
             toward = -point
             facing = math.atan2(toward[1], toward[0]) if np.linalg.norm(toward) > 1e-8 else 0.0

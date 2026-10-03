@@ -19,7 +19,9 @@ Required inputs
 Optional inputs (defaults)
 --------------------------
 Arm and mounting:
-  current_pose     List, float: six starting arm angles; empty excludes approach motion
+  current_pose     List, float: six starting arm angles; empty excludes approach motion.
+                   Or Item, no type hint: a named COMPAS Configuration, including lift.
+                   Start joint limits and configuration collisions are checked.
   arm_in_base      Item, Plane: override; otherwise offline calibration or URDF controller base
   arm_joint_names List, str: optional override; inferred from robot/tool chain by default
   fixed_joint_values Item, JSON: nonplanned joints, e.g. {"lift": 0.2}, metres/radians
@@ -42,9 +44,26 @@ Arm validation and path:
   count_paths      Item, bool (False): also count every possible joint path (slower)
   fast_validation Item, bool (True): skip unused collision alternatives;
                    False restores exact counts. count_paths=True overrides this.
+  joint_ranges     Item, JSON: optional six [min,max] ranges in radians, null for unbounded.
+  time_intervals   List, float or Item, JSON: positive seconds per transition;
+                   N-1 values without current_pose, N with it (including approach).
+  max_joint_speed  Item, number or JSON: positive rad/sec, scalar or six values;
+                   requires time_intervals and limits steps together with max_joint_step.
   collision_meshes List, Mesh: wall and environment obstacles
                    (needed for full-body wall clearance)
   collision_check Item, bool (True): model/tool/environment at target configurations only
+  collision_options Item, JSON: clearance/ground_z in metres; support_links,
+                   allowed_pairs, check_static_self_collisions, exclude_gps,
+                   excluded_collision_links, base_collision_model, package_paths,
+                   asset_root, gui. Defaults retain detailed geometry and GPS.
+  collision_scene  Item, no type hint: configured PybulletServer; remains open.
+                   Must match robot/tool/environment and arm joint order. Omit
+                   collision_meshes; only clearance may accompany a supplied scene.
+  cancel           Item, bool (False): skip/cancel this run. A GH toggle does not
+                   interrupt a synchronous run already in progress.
+  cancel_check     Item, no type hint: optional callable polled during work;
+                   return True or raise PlanningCancelled to cancel cooperatively.
+  progress_callback Item, no type hint: optional callable receiving progress dicts.
 
 Toolbox loading:
   toolbox_src     Item, str: motion_toolbox/src; restart Rhino when switching installations
@@ -72,6 +91,10 @@ Arm results:
   solution_counts: exact feasible configurations per target; [] in fast mode.
   ik_option_count: product of exact counts, or "not counted" in fast mode.
   counts_complete: whether exhaustive configuration counts are available.
+  configurations: List of named COMPAS Configurations (fixed joints plus arm).
+  path_complete: complete connected joint path exists, regardless of collision toggle.
+  valid: complete path AND configuration collision checks enabled. Transitions unchecked.
+  cancelled: cooperative cancellation or KeyboardInterrupt cleared the outputs.
 
 Diagnostics and timing:
   status, diagnostics: summary and detailed results.
@@ -82,6 +105,15 @@ Diagnostics and timing:
   elapsed_seconds: total component execution time.
   timings: seconds spent in geometry, collision setup, IK, joint expansion,
            collision checking and path search.
+  disconnected_detail: JSON: zero-based transition indices (-1 means start),
+            effective step limits and nearest candidate joint deltas/limit ratio.
+  initial_state_failure: starting-pose collision reason, if candidate attempts fail.
+  unreachable_points: zero-based failed target indices when no base succeeds.
+  progress_messages: JSON progress messages, also printed to out.
+  effective_settings: JSON of resolved units, calibration, joints and collision settings.
+  loaded_code: JSON of source paths, package/API versions and loaded-code/file hashes.
+  research_run: local recording directory, or None when recording is disabled.
+  result: full workflow dictionary; None on error/cancellation.
 
 Search behavior
 ---------------
@@ -125,7 +157,7 @@ When calibration is missing, the URDF controller base frame and upstream lift
 configuration are used. No live ROS lookup or identity mounting frame is assumed.
 """
 import sys
-from contextlib import ExitStack
+import json
 from decimal import Decimal
 from time import perf_counter
 
@@ -137,6 +169,10 @@ def _input(name, default=None):
 
 base_plane, joint_plan, path_cost = None, None, None
 planned_tcp = []
+valid, path_complete, cancelled = False, False, False
+configurations, progress_messages, unreachable_points = [], [], []
+result, research_run, disconnected_detail, initial_state_failure = None, None, None, None
+effective_settings, loaded_code = None, None
 diagnostics, candidate_count, status = [], 0, ''
 path_count, solution_counts = '0', []
 ik_option_count, path_search_count = '0', 0
@@ -180,12 +216,12 @@ try:
     # Reload the planning dependency chain together: refreshing only the adapter
     # leaves old imported functions in base_planning/planning alive in Rhino.
     pipeline_names = (
-        'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
+        'motion_toolbox', 'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.execution', 'motion_toolbox.robot_adapter',
         'motion_toolbox.base_collision', 'motion_toolbox.collision',
         'motion_toolbox.base_planning', 'motion_toolbox.stationary_region',
-        'motion_toolbox.robot_planning',
+        'motion_toolbox.robot_planning', 'motion_toolbox.stationary_workflow',
     )
     pipeline = [importlib.import_module(name) for name in pipeline_names]
     def source_stamp(module):
@@ -199,93 +235,69 @@ try:
                 for module in pipeline)
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
-    stale = stale or 'selected_target_planes' not in getattr(base_module.BasePlan, '__dataclass_fields__', {})
+    result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail'}
+    stale = stale or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
+    stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 1
+    stale = stale or getattr(pipeline[pipeline_names.index('motion_toolbox.collision')], 'COLLISION_API_VERSION', 0) < 12
     if stale:
         importlib.invalidate_caches()
         for module in pipeline:
             importlib.reload(module)
             module._stationary_loaded_stamp = source_stamp(module)
     if (not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
-        or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})):
+        or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
+        or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
+        or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 1):
         raise RuntimeError('Outdated planner at {}. Set toolbox_src to the updated motion_toolbox/src directory and restart Rhino.'.format(
             base_module.__file__))
-    from motion_toolbox.geometry import as_plane, to_rhino
-    from motion_toolbox.base_planning import find_stationary_base
-    from motion_toolbox.stationary_region import StationaryRegion
-    from motion_toolbox.robot_adapter import kinematics_from_robot, resolve_arm_joint_names, _active_tool
-    from motion_toolbox.robot_planning import json_input
+    from motion_toolbox.geometry import to_rhino
+    from motion_toolbox.stationary_workflow import plan_stationary_base
     from Grasshopper import DataTree
     from Grasshopper.Kernel.Data import GH_Path
     scale = _input('units_to_metres', 1.0)
-    import math
-    if not math.isfinite(scale) or scale <= 0:
-        raise ValueError('units_to_metres must be positive; use 0.001 for millimetre inputs')
-    model = _input('robot')
-    if model is None:
-        raise ValueError('Connect robot: its arm geometry, tool and collision model are required')
-    if _active_tool(model, _input('group')) is None:
-        raise ValueError('Attach the calibrated active tool before stationary validation')
-    targets = [as_plane(p, scale) for p in _input('target_planes', [])]
-    bases = [as_plane(p, scale) for p in _input('candidate_planes', [])]
-    names = resolve_arm_joint_names(model, _input('arm_joint_names'), group=_input('group'))
-    joints = {j.name: j for j in model.model.get_configurable_joints()}
-    if len(names) != 6 or len(set(names)) != 6 or any(n not in joints or joints[n].type not in (0,1) for n in names):
-        raise ValueError('Provide six distinct UR revolute arm_joint_names in analytic order')
-    seed = list(_input('current_pose', [])) or None
-    if seed is not None and len(seed) != 6:
-        raise ValueError('Provide six starting arm angles or leave current_pose empty')
-    arm = _input('arm_in_base')
-    solver = kinematics_from_robot(model, arm_in_base=as_plane(arm, scale) if arm is not None else None,
-        parameters=json_input(_input('ur_parameters')), group=_input('group'),
-        fixed_joint_values=json_input(_input('fixed_joint_values'), {}), arm_joint_names=names)
-    geometry_started = perf_counter()
-    region = StationaryRegion(targets, solver.arm_in_base,
-        max_distance=1.75, base_height=_input('base_height', 0)*scale, projected=True)
-    if not bases:
-        bases, guesses, reason = region.candidates(
-            spacing=_input('grid_spacing', .5/scale)*scale, yaw_steps=_input('yaw_steps', 4))
-        initial_guesses = [to_rhino(p, 1/scale) for p in guesses]
-        if not bases:
-            raise ValueError(reason + ' Check target +Z normals, arm mounting/lift height, or split targets into multiple placements.')
-    candidate_count = len(bases)
-    timings['geometry_seconds'] = perf_counter()-geometry_started
-    periodic = [joints[n].type == 1 for n in names]
-    ranges = [([joints[n].limit.lower, joints[n].limit.upper]
-               if joints[n].limit is not None and joints[n].type != 1 else None) for n in names]
-    meshes = list(_input('collision_meshes', []))
-    enabled = _input('collision_check', True)
-    if meshes and not enabled:
-        raise ValueError('Enable collision checking to use obstacle meshes')
-    with ExitStack() as stack:
-        collision_setup_started = perf_counter()
-        scene = None
-        if enabled:
-            import motion_toolbox.collision as collision_module
-            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 12:
-                collision_module = importlib.reload(collision_module)
-            if getattr(collision_module, 'COLLISION_API_VERSION', 0) < 12:
-                raise RuntimeError('Outdated collision module: ' + str(collision_module.__file__))
-            PybulletServer = collision_module.PybulletServer
-            scene = stack.enter_context(PybulletServer(robot=model, joint_names=names,
-                check_static_self_collisions=False))
-            scene.set_fixed_joints(solver.fixed_joint_values)
-            for mesh in meshes:
-                scene.add_mesh(mesh, scale=scale)
-        timings['collision_setup_seconds'] = perf_counter()-collision_setup_started
-        found = find_stationary_base(targets, bases, seed, ik_solver=solver,
-            objective='heuristic', placement_region=region, build_path=_input('build_path', True),
-            base_collision=scene.is_base_valid if scene else None,
-            max_validation_attempts=_input('max_validation_attempts', 3),
-            fast_validation=_input('fast_validation', True),
-            count_paths=_input('count_paths', False),
-            collision=scene.is_valid if scene else None,
-            rotation_mode='n_steps', rotation_steps=_input('rotation_steps', 16),
-            joint_ranges=ranges, periodic=periodic, max_joint_step=_input('max_joint_step', 2.5))
+    def _progress(message):
+        global research_run
+        research_run = message.get('research_run')
+        text = json.dumps(message, sort_keys=True)
+        progress_messages.append(text)
+        print('Stationary planner: '+text)
+        callback = _input('progress_callback')
+        if callback is not None:
+            callback(message)
+    def _cancel():
+        if _input('cancel', False):
+            return True
+        callback = _input('cancel_check')
+        return callback() if callback is not None else False
+    result = plan_stationary_base(_input('robot'), list(_input('target_planes', [])),
+        candidate_planes=list(_input('candidate_planes', [])), units_to_metres=scale,
+        current_pose=_input('current_pose'), arm_in_base=_input('arm_in_base'),
+        arm_joint_names=_input('arm_joint_names'), group=_input('group'),
+        fixed_joint_values=_input('fixed_joint_values'), parameters=_input('ur_parameters'),
+        grid_spacing=_input('grid_spacing'), base_height=_input('base_height', 0.),
+        yaw_steps=_input('yaw_steps', 4), rotation_steps=_input('rotation_steps', 16),
+        max_validation_attempts=_input('max_validation_attempts', 3),
+        max_joint_step=_input('max_joint_step', 2.5), joint_ranges=_input('joint_ranges'),
+        build_path=_input('build_path', True), count_paths=_input('count_paths', False),
+        fast_validation=_input('fast_validation', True), collision_check=_input('collision_check', True),
+        collision_meshes=list(_input('collision_meshes', [])), collision_options=_input('collision_options'),
+        scene=_input('collision_scene'), time_intervals=_input('time_intervals'),
+        max_joint_speed=_input('max_joint_speed'), cancel_check=_cancel, progress=_progress)
+    found = result['found']
+    targets = result['targets']
+    initial_guesses = [to_rhino(p, 1/scale) for p in result['initial_guesses']]
+    candidate_count = result['candidate_count']
+    timings = dict(result['timings'])
+    valid, path_complete = result['valid'], result['path_complete']
+    configurations = result['configuration_objects']
+    research_run = result['research_run']
+    initial_state_failure = result['initial_state_failure']
+    unreachable_points = result['unreachable_points']
+    disconnected_detail = json.dumps(result['disconnected_detail'], sort_keys=True) if result['disconnected_detail'] else None
+    effective_settings = json.dumps(result['effective_settings'], sort_keys=True)
+    loaded_code = json.dumps(result['loaded_modules'], sort_keys=True)
     path_cost = found.cost if found.path_search_count else None
     planned_tcp = [to_rhino(p, 1/scale) for p in found.selected_target_planes]
-    for diagnostic in found.diagnostics:
-        for name, seconds in diagnostic.get('timings', {}).items():
-            timings[name] = timings.get(name, 0.0)+seconds
     validation_attempts, base_collision_checks = found.validation_attempts, found.base_collision_checks
     initial_base_plane = to_rhino(found.heuristic_plane, 1/scale) if found.heuristic_plane is not None else None
     counts_complete = found.counts_complete
@@ -300,7 +312,7 @@ try:
         d['wrong_side_points'], d['too_far_points'])
         for i, d in enumerate(found.diagnostics)]
     diagnostics.insert(0, 'Mounting: {}; arm origin in footprint {} m; fixed joints {}'.format(
-        solver.mounting_source, solver.arm_in_base.origin.tolist(), solver.fixed_joint_values))
+        result['mounting_source'], result['arm_in_base'].origin.tolist(), result['fixed_joint_values']))
     diagnostics.insert(0, 'Toolbox loaded from: ' + toolbox_loaded_from)
     failure_details = []
     for attempt, diagnostic in enumerate(found.diagnostics):
@@ -315,6 +327,12 @@ try:
             detail['collision_free'], '; '.join('{} ({} rejections)'.format(reason, count) for reason, count in rejected[:3]))
         failure_details.append(text)
     diagnostics.extend(failure_details)
+    diagnostics.extend(['Effective settings: '+effective_settings, 'Research run: '+str(research_run),
+                        'CPU execution: '+json.dumps(result.get('execution_policy', {}), sort_keys=True)])
+    if disconnected_detail:
+        diagnostics.append('Disconnected path: '+disconnected_detail)
+    if initial_state_failure:
+        diagnostics.append('Starting configuration: '+initial_state_failure)
     if not counts_complete:
         diagnostics.append('Fast validation: alternative configuration counts not counted. Set fast_validation=False for exact counts.')
     joint_plan = DataTree[float]()
@@ -327,39 +345,21 @@ try:
         for i,q in enumerate(found.configurations):
             for v in q:
                 joint_plan.Add(float(v), GH_Path(i))
-        status = 'Found base. All {} targets reachable; {} position{} tested; wall distance {:.2f} m.'.format(
-            len(targets), validation_attempts, '' if validation_attempts == 1 else 's', standoff)
-        if not enabled:
-            status += ' Collision checks off.'
-        if found.path_search_count and not found.configurations:
-            status += ' Joint path blocked by max_joint_step.'
-    else:
-        from collections import Counter
-        failed = [d['failed_target_details'] for d in found.diagnostics if d.get('failed_target_details')]
-        status = 'No valid base. {} positions tested.'.format(validation_attempts)
-        if failed:
-            indices = sorted({d['target_index']+1 for d in failed})
-            status += ' Failed at target{} {} of {}.'.format('s' if len(indices)>1 else '',
-                ', '.join(map(str, indices)), len(targets))
-            blockers = Counter()
-            for detail in failed:
-                blockers.update(detail['rejection_reasons'])
-            if blockers:
-                status += ' Main collisions: ' + '; '.join(reason.replace('robot_arm_', '').replace('robot_', '')
-                    for reason, _ in blockers.most_common(2)) + '.'
-            else:
-                status += ' IK or joint limits rejected the configurations.'
-        else:
-            status += ' Placement constraints or base collisions rejected the candidates.'
-        status += ' See diagnostics for details.'
-except Exception as error:
+    status = result['status']
+except (Exception, KeyboardInterrupt) as error:
+    cancelled = type(error).__name__ in ('PlanningCancelled', 'KeyboardInterrupt')
+    valid, path_complete = False, False
+    configurations, unreachable_points = [], []
+    result, disconnected_detail, initial_state_failure = None, None, None
+    effective_settings, loaded_code = None, None
+    initial_guesses, initial_base_plane = [], None
     planned_tcp = []
     counts_complete = False
     base_plane, joint_plan, path_cost = None, None, None
     path_count, solution_counts = '0', []
     ik_option_count, path_search_count = '0', 0
     standoff, max_target_distance = None, None
-    status = '{}: {}'.format(type(error).__name__, error)
+    status = 'Planning cancelled; no trajectory returned.' if cancelled else '{}: {}'.format(type(error).__name__, error)
     diagnostics = [status]
     if toolbox_loaded_from:
         diagnostics.append('Toolbox loaded from: ' + toolbox_loaded_from)

@@ -432,6 +432,15 @@ loaded a different installation, restart Rhino after setting `toolbox_src`;
 changing `sys.path` alone cannot replace modules already cached in that session.
 `current_pose` is optional: when omitted, the objective includes only printing
 motion between targets, and no approach from an initial arm pose is checked.
+Supply six arm radians, or set the input to Item access with no type hint and
+supply a named COMPAS `Configuration`. Named values are reordered into the arm's
+analytic order; non-arm values (including lift) become fixed joints. Explicit
+`fixed_joint_values` override values from that configuration. The starting pose
+must satisfy joint limits and, when collision checking is enabled, must be
+collision-free at the candidate base. A start collision retries other headings
+under the same bounded placement policy. `configurations` returns named
+configurations containing all fixed non-arm joints followed by the six arm joints;
+`joint_plan` retains its six-arm-values-per-target DataTree format.
 `arm_in_base` is an optional mounting-frame override: by default the adapter
 uses the robot's initialized offline `_RCF` calibration plus `lift_height`.
 It describes the arm controller frame relative to the footprint, including
@@ -465,7 +474,7 @@ in successful configuration outputs. The search allows up to `max_validation_att
 fully reachable position, rather than evaluating IK for every candidate. The
 winner's cached IK results feed **one** joint-path search (which may solve the
 graph repeatedly as colliding configurations are rejected). Set
-`build_path=False` to skip that search. It samples eight rotations around each target's local
+`build_path=False` to skip that search. It samples sixteen rotations around each target's local
 Z axis by default (`rotation_steps`), retaining its position and normal. Counts
 are specific to this discrete search, not a continuous-space optimum.
 `fast_validation=True` is the default: establish collision-free reachability at
@@ -491,6 +500,14 @@ Set `count_paths=True` to compute it as part of the final path search. This does
 not change the chosen path or its cost. If joint-step limits disconnect that path,
 the selected base is still returned with an empty joint plan and explanatory
 status; the component does not build paths for the other bases.
+`time_intervals` supplies positive seconds per transition: N-1 values without a
+starting pose, or N with one (first duration is the approach to target 0).
+`max_joint_speed` accepts one positive rad/sec value or six values in arm joint
+order. Each transition uses the smaller of `max_joint_step` and speed times
+duration. Times alone do not impose a speed limit. This constrains sampled joint
+motion; it does not certify acceleration, controller timing, or swept collisions.
+`joint_ranges` optionally overrides arm ranges using a JSON list of [min,max]
+radians (null for an unbounded joint).
 `planned_tcp` is a list of world TCP planes in input model units, including the
 TCP-Z rotations selected for the joint path, in original target order. Add an
 output named `planned_tcp` to the GH component. It is empty when no complete
@@ -525,6 +542,67 @@ account for the rotated mounting offset for each sampled heading.
 No side-flip, arbitrary guess distance or search margin is needed. Legacy
 `flip_side`, `guess_distance`, `search_margin` and `smart_initial_guess` inputs
 are ignored by this component and can be removed.
+
+The stationary component also exposes the following outputs. Add parameters with
+these exact names to the Grasshopper component when needed:
+
+| Output | Meaning |
+| --- | --- |
+| `path_complete` | A connected joint path covers every target. |
+| `valid` | That complete path was checked for configuration collisions; false when collision checking is off, path building is off, or planning fails. Transitions remain unchecked. |
+| `disconnected_detail` | JSON with the blocked transition, effective joint-step limits, and nearest candidate deltas/limit ratio. Indices are zero-based; -1 means the starting pose. |
+| `initial_state_failure` | Starting-configuration collision reason when candidate attempts fail. |
+| `unreachable_points` | Failed target indices when no base succeeds. |
+| `progress_messages` | JSON messages for setup, placement, IK, collisions, graph search and completion; also printed to `out`. |
+| `cancelled` | Cancellation cleared the trajectory and placement outputs. |
+| `effective_settings` | Resolved units, calibration, joint settings, fixed values, collision policy and search settings as JSON. |
+| `loaded_code` | Package/API versions, module locations, file hashes and loaded-code hashes as JSON. |
+| `research_run` | The single recording folder covering setup through the final result, or None when recording is disabled. |
+| `result` | Full Python workflow result including named configurations, numeric planes and diagnostics. |
+
+`cancel=True` skips the run. For interruption during computation, `cancel_check`
+accepts a callable that returns True or raises
+`motion_toolbox.execution.PlanningCancelled`. Checks occur between geometry,
+IK, collision and graph operations; a single native operation cannot be interrupted
+mid-call. A Grasshopper boolean toggle alone cannot interrupt an already running
+synchronous script. `progress_callback` optionally accepts progress dictionaries.
+Cancellation returns no partial trajectory and restores the previous CPU policy.
+
+`collision_options` accepts JSON. `clearance` and `ground_z` are always metres,
+independent of input geometry units. For example:
+
+```json
+{"clearance": 0.01, "ground_z": 0.0, "support_links": ["actual_wheel_link_name"]}
+```
+
+Use real robot link names. `support_links` exempts those links from ground contact
+checks; other robot/environment and tool contacts remain checked. `allowed_pairs`
+specifies pairs of robot link names with intentional contact. Additional options
+are `check_static_self_collisions`, `exclude_gps`, `excluded_collision_links`,
+`base_collision_model` (`detailed`, `auto`, `boxes`), `package_paths`, `asset_root`,
+and `gui`. Unknown options are rejected. Defaults retain detailed base geometry,
+GPS coverage and the existing static-self-collision policy. Changing exclusions
+or geometry is explicit and reported in `effective_settings`.
+
+`collision_scene` accepts an already configured `PybulletServer`. It must match
+the current robot, active tool and environment; joint order is checked, while the
+caller remains responsible for model/geometry freshness. The scene remains open
+after success, failure or cancellation. Its fixed joints and current pose are
+updated during planning. Omit `collision_meshes` and scene-construction options;
+only `clearance` may accompany a supplied scene. Rebuild or update the scene when
+geometry/tool settings change, and do not share a mutable scene across concurrent
+planning calls. An internally created scene is always closed by the workflow.
+
+For Python callers, `motion_toolbox.stationary_workflow.plan_stationary_base`
+provides the same robot-facing workflow and keyword inputs, with `scene` for
+`collision_scene`, `progress` for `progress_callback`, and `parameters` for
+`ur_parameters`. It returns a dictionary; errors and cancellation raise exceptions.
+`effective_settings` and `loaded_modules` remain dictionaries there. The workflow
+uses one automatic recording (or reuses an active `ResearchRun`); setting
+`TOOLBOX_RECORDING=0` disables automatic recording. Native/custom objects and
+externally created scenes can require additional assets for replay; see
+[research recording](docs/research-recording.md).
+
 `initial_guesses` previews geometry-valid seeds; full IK and collision checks
 are still required. The circular reach sections use conservative 128-sided
 polygons (at most 0.53 mm radial loss at 1.75 m). All candidates are rechecked
@@ -535,7 +613,8 @@ The generic Python API retains minimum-travel ranking by default. Pass a
 `StationaryRegion(projected=True)` as `placement_region`, `objective='heuristic'`,
 and a `base_collision` callback for this
 component's constraints and ranking.
-PyBullet checks collisions **only at target configurations**, not between them.
+PyBullet checks collisions **at target configurations and the supplied starting
+configuration**, not between them.
 Configuration checks default to enabled; **supply the wall mesh** as well as other environment obstacles to
 check full robot/body clearance. Target planes alone do not describe solid wall
 geometry. The strict side test excludes on-plane arm origins, but is not a body

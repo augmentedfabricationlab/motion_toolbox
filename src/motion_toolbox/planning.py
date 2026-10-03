@@ -63,7 +63,7 @@ def _in_ranges(q, ranges):
 
 @recorded
 def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=None, *, stats=None,
-               candidate_angles=None):
+               candidate_angles=None, cancel_check=None):
     """Return unique feasible joint vectors and diagnostic counts.
 
     If supplied, candidate_angles is filled with the TCP-Z angle for each
@@ -75,8 +75,11 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
     target, base = as_plane(target), as_plane(base)
     joint_ranges = normalize_joint_ranges(joint_ranges)
     all_q, seen, angles_by_q = [], set(), {}
+    from .execution import check_cancel
     for angle in offsets:
+        check_cancel(cancel_check)
         for q in ik_solver(target.rotated_z(angle), base):
+            check_cancel(cancel_check)
             q = np.asarray(q, dtype=float)
             if q.ndim != 1 or q.size == 0 or not np.isfinite(q).all():
                 raise ValueError('IK returned an invalid configuration')
@@ -104,6 +107,7 @@ def candidates(target, base, ik_solver, offsets, collision=None, joint_ranges=No
         cache_key = getattr(checker, 'configuration_cache_key', None)
         cache = {}
         for q in ranged:
+            check_cancel(cancel_check)
             key = cache_key(q) if cache_key is not None else None
             if key is not None and key in cache:
                 collision_cache_hits += 1

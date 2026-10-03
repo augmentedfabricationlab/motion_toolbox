@@ -328,8 +328,9 @@ def test_stationary_generated_search_uses_constrained_region_in_input_units(gh, 
     assert smart['status'].startswith('Found base'), smart['status']
     assert smart['standoff'] > 0
     assert smart['max_target_distance'] <= 1.75+1e-9
-    for base in smart['bases']:
-        assert smart['region'].metrics(base)['geometry_valid']
+    from motion_toolbox.stationary_region import StationaryRegion
+    region = StationaryRegion(smart['result']['targets'], smart['result']['arm_in_base'], projected=True)
+    assert region.metrics(smart['result']['found'].base_plane)['geometry_valid']
     # Legacy flip/distance/guess switches cannot bypass the geometric rules.
     inputs.update(smart_initial_guess=False, flip_side=True, guess_distance=100, search_margin=100)
     legacy = runpy.run_path(script, init_globals=inputs)
@@ -481,6 +482,46 @@ def test_stationary_refreshes_collision_source_and_dependencies(gh, monkeypatch)
     failed = runpy.run_path(script, init_globals=dict(inputs, units_to_metres=-1))
     assert failed['base_plane'] is None and failed['joint_plan'] is None
     assert failed['solution_counts'] == [] and not failed['counts_complete']
+
+
+def test_stationary_new_outputs_and_cancel_clear_previous_results(gh):
+    import json
+    from compas_robots import Configuration
+    robot, q, targets, names = robot_fixture()
+    inputs = dict(robot=robot, target_planes=targets, current_pose=Configuration(q, [0]*6, names),
+        candidate_planes=[Plane.world_xy()], arm_in_base=Plane.world_xy(), rotation_steps=1)
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    good = runpy.run_path(script, init_globals=inputs)
+    assert good['valid'] and good['path_complete'] and not good['cancelled']
+    assert len(good['configurations']) == len(targets)
+    assert json.loads(good['effective_settings'])['current_pose'] == q
+    assert 'motion_toolbox.stationary_workflow' in json.loads(good['loaded_code'])
+    assert good['progress_messages'] and good['disconnected_detail'] is None
+    # Feed stale output variables back in, like a retained GH execution scope.
+    cancelled = runpy.run_path(script, init_globals=dict(good, **dict(inputs, cancel=True)))
+    assert cancelled['cancelled'] and not cancelled['valid'] and not cancelled['path_complete']
+    assert cancelled['planned_tcp'] == cancelled['configurations'] == []
+    assert cancelled['joint_plan'] is None and cancelled['base_plane'] is None
+    assert cancelled['result'] is None
+    blocked = runpy.run_path(script, init_globals=dict(inputs,
+        time_intervals=[.001]*len(targets), max_joint_speed=.1))
+    assert blocked['base_plane'] is not None and not blocked['valid']
+    assert json.loads(blocked['disconnected_detail'])['to_target'] == 1
+    assert blocked['planned_tcp'] == []
+    unchecked = runpy.run_path(script, init_globals=dict(inputs, collision_check=False))
+    assert unchecked['path_complete'] and not unchecked['valid']
+
+
+def test_stationary_live_callback_cancellation(gh):
+    robot, _, targets, _ = robot_fixture()
+    seen = []
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_stationary_base.py'), init_globals=dict(
+        robot=robot, target_planes=targets, candidate_planes=[Plane.world_xy()],
+        arm_in_base=Plane.world_xy(), rotation_steps=1,
+        progress_callback=lambda m: seen.append(m['stage']),
+        cancel_check=lambda: 'joint_graph' in seen))
+    assert out['cancelled'] and 'joint_graph' in seen
+    assert not out['valid'] and out['planned_tcp'] == []
 
 
 @pytest.mark.parametrize('build_path', [True, False])

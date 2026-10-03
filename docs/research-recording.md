@@ -47,6 +47,16 @@ schema, including when called in the same Grasshopper script. Install the curren
 local checkouts together: `python -m pip install -e ../motion_toolbox -e ../toolpath_toolbox`.
 No database server or telemetry service is used. Archives remain local.
 
+The stationary Grasshopper component delegates to
+`stationary_workflow.plan_stationary_base`, so robot/calibration setup, collision
+scene loading, candidate generation, validation and the final result share one
+run. Its `research_run` output identifies that folder; `effective_settings` reports
+resolved values and `loaded_code` exposes the loaded-module fingerprints already
+captured by the recorder. An active `ResearchRun` is reused, and automatic capture
+still honors `TOOLBOX_RECORDING=0`. Scene setup that happened before a supplied
+external scene enters this workflow is not retroactively archived: construct that
+scene inside an explicit enclosing run and retain any required native assets.
+
 ## Stored data
 
 Normal recording stores **top-level inputs, final outputs and process statistics**.

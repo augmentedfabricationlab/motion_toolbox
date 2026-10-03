@@ -8,7 +8,7 @@ import numpy as np
 from .geometry import Plane, as_plane
 from .planning import candidates, calculate_partial_trajectory, rotation_offsets
 from .graph import shortest_path
-from .execution import high_qos
+from .execution import high_qos, check_cancel
 
 
 @recorded
@@ -142,6 +142,8 @@ class BasePlan:
     counts_complete: bool = True
     selected_target_planes: list = field(default_factory=list)
     selected_tcp_rotations: list = field(default_factory=list)
+    initial_state_failure: Optional[str] = None
+    disconnected_detail: Optional[dict] = None
 
     @property
     def base_plane(self):
@@ -279,9 +281,16 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
     """
     if int(attempts) != attempts or attempts < 1:
         raise ValueError('max_validation_attempts must be a positive integer')
+    if current_pose is not None:
+        from .planning import _in_ranges, normalize_joint_ranges
+        if not np.isfinite(current_pose).all() or np.asarray(current_pose).ndim != 1:
+            raise ValueError('Starting configuration requires finite joint values')
+        if not _in_ranges(current_pose, normalize_joint_ranges(options.get('joint_ranges'), len(current_pose))):
+            raise ValueError('Starting configuration exceeds joint limits')
     ranked = []
     diagnostics = []
     for base in bases:
+        check_cancel(options.get('cancel_check'))
         base = as_plane(base)
         metrics = region.metrics(base)
         if metrics['geometry_valid']:
@@ -301,7 +310,12 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
     priority_targets = []
     checks = 0
     guess = None
+    reported_attempt = None
     while ranked and len(tried) < attempts:
+        check_cancel(options.get('cancel_check'))
+        if checks % 100 == 0 or reported_attempt != len(tried):
+            _stationary_progress(options, 'placement', tested=len(tried), remaining=len(ranked))
+            reported_attempt = len(tried)
         # A reach-boundary point can fail in 3D even though its XY radius fits.
         # Move meaningfully inward after failure, not sideways along that same
         # boundary or through every heading at the same overextended location.
@@ -320,7 +334,7 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
             checks += 1
             if not base_collision(base):
                 diagnostics.append(dict(base_plane=base, reason='base_environment_collision',
-                    base_collision_detail=getattr(getattr(base_collision, '__self__', None), 'last_failure', None),
+                    base_collision_detail=_collision_failure(base_collision),
                     ik_checked=False, targets_checked=0, reachable_targets=0, solution_counts=[],
                     path_checked=False, **metrics))
                 continue
@@ -328,6 +342,14 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
             guess = base
         tried.append(np.array(metrics['arm_origin'])[:2])
         previous_standoff = metrics['standoff']
+        if current_pose is not None and collision is not None and not collision(current_pose, base):
+            reason = _collision_failure(collision) or 'Starting configuration collision'
+            result.initial_state_failure = reason
+            diagnostics.append(dict(base_plane=base, reason='initial_collision',
+                initial_state_failure=reason, ik_checked=False, targets_checked=0,
+                reachable_targets=0, solution_counts=[], path_checked=False, **metrics))
+            previous_reason = 'collision'
+            continue
         candidate_options = dict(options, _priority_targets=priority_targets)
         if fast:
             candidate = _validate_stationary_fast(targets, base, current_pose,
@@ -336,6 +358,7 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
             candidate = _find_stationary_base_by_options(targets, [base], current_pose,
                 solver, collision, region, build_path, candidate_options)
         diagnostics.extend(candidate.diagnostics)
+        result.initial_state_failure = None
         if candidate.base_planes:
             result = candidate
             break
@@ -351,6 +374,43 @@ def _find_stationary_base_heuristic(targets, bases, current_pose, solver, collis
     return result
 
 
+def _collision_failure(collision):
+    from functools import partial
+    function = collision.func if isinstance(collision, partial) else collision
+    return getattr(getattr(function, '__self__', None), 'last_failure', None)
+
+
+def _stationary_progress(options, stage, **data):
+    if options.get('progress') is not None:
+        options['progress'](dict(stage=stage, **data))
+
+
+def _stationary_disconnection(solved, layers, start, options):
+    """Describe the first blocked transition using original target indices."""
+    i = solved.failure_layer
+    if solved.configurations or i is None:
+        return None
+    n = len(layers[i][0]) if layers[i] else (len(start) if start is not None else 0)
+    limits = np.broadcast_to(options.get('max_joint_step', 2.5), (n,)).astype(float)
+    if options.get('step_limits') is not None:
+        limits = np.minimum(limits, options['step_limits'][i])
+    previous = ([start] if i == 0 and start is not None else
+                [layers[i-1][j] for j in solved.reachable_indices] if i else [])
+    periodic = np.zeros(n, dtype=bool) if options.get('periodic') is None else np.asarray(options['periodic'], dtype=bool)
+    best = None
+    for q in previous:
+        delta = np.asarray(layers[i])-q
+        delta[:, periodic] = (delta[:, periodic]+np.pi) % (2*np.pi)-np.pi
+        ratios = np.max(np.abs(delta)/np.maximum(limits, 1e-15), axis=1)
+        j = int(np.argmin(ratios))
+        if best is None or ratios[j] < best[0]:
+            best = float(ratios[j]), np.abs(delta[j]).tolist()
+    return dict(from_target=i-1, to_target=i, joint_step_limits=limits.tolist(),
+        minimum_joint_step_limit_ratio=best[0] if best else None,
+        joint_deltas_at_nearest_pair=best[1] if best else None,
+        reason='No connected path under configuration and joint-step/speed constraints')
+
+
 def _validate_stationary_fast(targets, base, start, solver, collision, geometry, build_path, options):
     """Prove per-target reachability before lazily validating the winner's path."""
     offsets = rotation_offsets(options.get('rotation_mode', False),
@@ -364,9 +424,9 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
     result = BasePlan([], [], float('inf'), [], [diagnostic], counts_complete=False)
     result.ik_option_count = None
     layers, details, checked, layer_angles = {}, {}, {}, {}
-    checker = getattr(collision, '__self__', None)
 
     def valid(i, j):
+        check_cancel(options.get('cancel_check'))
         if (i, j) not in checked:
             tick = perf_counter()
             accepted = collision is None or collision(layers[i][j], base)
@@ -378,17 +438,19 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
                 stats['collision_free'] += 1
             else:
                 stats['collision_rejections'] += 1
-                reason = getattr(checker, 'last_failure', None) or 'collision checker rejected configuration'
+                reason = _collision_failure(collision) or 'collision checker rejected configuration'
                 failures = stats['rejection_reasons']
                 failures[reason] = failures.get(reason, 0)+1
         return checked[i, j]
 
     order = list(dict.fromkeys(list(options.get('_priority_targets', [])) + list(range(len(targets)))))
     for i in order:
+        check_cancel(options.get('cancel_check'))
         stats = {}
         angles = []
         rows, raw, _ = candidates(targets[i], base, solver, offsets, None,
-            options.get('joint_ranges'), stats=stats, candidate_angles=angles)
+            options.get('joint_ranges'), stats=stats, candidate_angles=angles,
+            cancel_check=options.get('cancel_check'))
         layer_angles[i] = angles
         layers[i], details[i] = rows, stats
         timing['ik_seconds'] += stats['ik_seconds']
@@ -404,6 +466,8 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
             diagnostic['failed_target_details'] = dict(target_index=i, **stats)
             break
         diagnostic['reachable_targets'] += 1
+        if diagnostic['targets_checked'] % 100 == 0 or diagnostic['targets_checked'] == len(targets):
+            _stationary_progress(options, 'ik_candidates', tested=diagnostic['targets_checked'], total=len(targets))
     diagnostic['checked_target_indices'] = sorted(layers)
     diagnostic['solution_counts_before_filters'] = [details[i]['raw_ik'] for i in sorted(layers)]
     if not diagnostic['unreachable_points']:
@@ -421,12 +485,19 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
             def graph_valid(i, j):
                 return valid(i, indices[i][j])
             def rejected_layer(i, j):
-                return [k for k in range(len(indices[i])) if not graph_valid(i, k)]
-            solved = shortest_path([[layers[i][j] for j in ids] for i, ids in enumerate(indices)], start=start,
+                rejected = [k for k in range(len(indices[i])) if not graph_valid(i, k)]
+                _stationary_progress(options, 'collision_candidates', target=i, rejected=len(rejected))
+                return rejected
+            graph_layers = [[layers[i][j] for j in ids] for i, ids in enumerate(indices)]
+            _stationary_progress(options, 'joint_graph', total=len(targets))
+            solved = shortest_path(graph_layers, start=start,
                 max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
                 weights=options.get('weights'), count_paths=False,
                 revolute_joints=getattr(solver, 'revolute_joints', None),
-                node_valid=graph_valid, node_rejection_group=rejected_layer, stats=graph_stats)
+                node_valid=graph_valid, node_rejection_group=rejected_layer, stats=graph_stats,
+                step_limits=options.get('step_limits'),
+                cancel_check=lambda: check_cancel(options.get('cancel_check')))
+            result.disconnected_detail = _stationary_disconnection(solved, graph_layers, start, options)
             timing['path_seconds'] = graph_stats.get('graph_seconds', perf_counter()-tick)
             diagnostic['graph_solves'] = graph_stats.get('graph_solves', 0)
             result.configurations, result.cost = solved.configurations, solved.cost
@@ -472,16 +543,20 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         priority = options.get('_priority_targets', [])
         order = list(dict.fromkeys(list(priority) + list(range(len(targets)))))
         for i in order:
+            check_cancel(options.get('cancel_check'))
             target = targets[i]
             stats = {}
             angles = []
             qs, before, _ = candidates(target, base, solver, offsets, collision,
-                options.get('joint_ranges'), stats=stats, candidate_angles=angles)
+                options.get('joint_ranges'), stats=stats, candidate_angles=angles,
+                cancel_check=options.get('cancel_check'))
             layer_angles[i] = angles
             for name in diagnostic['timings']:
                 diagnostic['timings'][name] += stats[name]
             layers[i] = qs
             raw[i] = before
+            if len(layers) % 100 == 0 or len(layers) == len(targets):
+                _stationary_progress(options, 'ik_candidates', tested=len(layers), total=len(targets))
             if not qs:
                 diagnostic['unreachable_points'] = [i]
                 diagnostic['reason'] = ('no_ik' if before == 0 else
@@ -509,11 +584,15 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
             best.ik_option_count, best.standoff = combinations, standoff
             best.max_target_distance = geometry.get('max_target_distance', 0.0)
     if best_layers is not None and build_path:
+        _stationary_progress(options, 'joint_graph', total=len(targets))
         path_started = perf_counter()
         solved = shortest_path(best_layers, start=current_pose,
             max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
             weights=options.get('weights'), count_paths=options.get('count_paths', True),
-            revolute_joints=getattr(solver, 'revolute_joints', None))
+            revolute_joints=getattr(solver, 'revolute_joints', None),
+            step_limits=options.get('step_limits'),
+            cancel_check=lambda: check_cancel(options.get('cancel_check')))
+        best.disconnected_detail = _stationary_disconnection(solved, best_layers, current_pose, options)
         selected['timings']['path_seconds'] = perf_counter()-path_started
         best.configurations, best.cost, best.path_count = solved.configurations, solved.cost, solved.path_count
         if solved.configurations:
