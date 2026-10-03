@@ -28,7 +28,7 @@ def main():
         inputs = dict(robot=robot, target_planes=[to_rhino(p) for p in targets], current_pose=q,
             arm_in_base=to_rhino(Plane.world_xy()),
             base_planes=[to_rhino(Plane.world_xy())], rotation_steps=1)
-        output = runpy.run_path(str(repo/'examples/grasshopper.py'), init_globals=inputs)
+        output = runpy.run_path(str(repo/'examples/grasshopper_arm.py'), init_globals=inputs)
         assert output['status'].startswith('Planned'), output['status']
         assert output['joint_plan'].BranchCount == 3
         assert output['joint_plan'].DataCount == 18
@@ -45,7 +45,7 @@ def main():
         tree = solutions_to_tree([[[1., 2.]], [], [[3., 4.]]])
         assert tree.BranchCount == 3 and tree.DataCount == 4
         args.output.write_text(json.dumps(dict(result='passed', rhino=str(Rhino.RhinoApp.Version),
-            components=['grasshopper.py', 'grasshopper_motion_plan.py', 'grasshopper_stationary_base.py'], branches=3, values=18,
+            components=['grasshopper_arm.py', 'grasshopper_motion_plan.py', 'grasshopper_stationary_base.py'], branches=3, values=18,
             robot_object=True, pybullet_collision=True, grasshopper_datatree=True), indent=2))
         print('All three Grasshopper component scripts passed using real Rhino/Grasshopper types')
     finally:

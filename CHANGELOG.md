@@ -4,6 +4,16 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.49 - 2026-10-03
+
+- Rename examples/grasshopper.py to examples/grasshopper_arm.py; update current
+  documentation, component tests and the Rhino validation runner to the new path.
+- Default arm and stationary-base TCP-Z rotation sampling to 16, matching the
+  mobile-base component. Explicit rotation_steps inputs remain supported.
+- No dependency changes. Existing references to the old example path must be updated.
+- Validation: 54 Grasshopper entrypoint and mobile-base workflow tests passed
+  in the working tree; git diff --check passed.
+
 ## 0.1.48 - 2026-10-03
 
 - Require an attached active tool in the stationary Grasshopper component,

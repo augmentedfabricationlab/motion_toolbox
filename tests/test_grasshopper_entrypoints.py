@@ -106,7 +106,7 @@ def gh(monkeypatch):
 
 def test_component_executes_with_collision_and_named_output(gh):
     robot, q, targets, names = robot_fixture()
-    out = runpy.run_path(str(EXAMPLES/'grasshopper.py'), init_globals=dict(
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_arm.py'), init_globals=dict(
         robot=robot, current_pose=q, target_planes=targets,
         arm_in_base=Plane.world_xy(), rotation_steps=1,
         fixed_joint_values='{"lift": 0.2}'))
@@ -122,13 +122,13 @@ def test_component_executes_with_collision_and_named_output(gh):
     assert out['diagnostics'] == []
 
 
-@pytest.mark.parametrize('filename', ['grasshopper.py', 'grasshopper_motion_plan.py'])
+@pytest.mark.parametrize('filename', ['grasshopper_arm.py', 'grasshopper_motion_plan.py'])
 def test_missing_inputs_clear_outputs(gh, filename):
     failed = runpy.run_path(str(EXAMPLES/filename))
     assert failed['configurations'] == []
     assert failed['result'] is None
     assert 'Error' in failed['status']
-    if filename == 'grasshopper.py':
+    if filename == 'grasshopper_arm.py':
         assert failed['planned_tcp'] == []
 
 
@@ -193,7 +193,7 @@ def test_component_warns_only_when_active_tool_is_missing(gh, monkeypatch, attac
     monkeypatch.setitem(sys.modules, 'Grasshopper.Kernel', kernel)
     environment = SimpleNamespace(Component=SimpleNamespace(
         AddRuntimeMessage=lambda level, message: messages.append((level, message))))
-    out = runpy.run_path(str(EXAMPLES/'grasshopper.py'), init_globals=dict(
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_arm.py'), init_globals=dict(
         robot=robot, target_planes=targets, arm_in_base=Plane.world_xy(),
         rotation_steps=1, collision_check=False, ghenv=environment))
     assert out['status'].startswith('Planned'), out['status']
@@ -222,7 +222,7 @@ def test_robot_component_optional_mount_and_start_no_sampled_edges(gh, monkeypat
     def forbidden(*args, **kwargs):
         raise AssertionError('Default planning must not sample edges')
     monkeypatch.setattr(PybulletServer, 'edge_is_valid', forbidden)
-    out = runpy.run_path(str(EXAMPLES/'grasshopper.py'), init_globals=dict(
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_arm.py'), init_globals=dict(
         robot=robot, target_planes=targets, rotation_steps=1))
     assert out['status'].startswith('Planned'), out['status']
     assert len(out['configurations']) == len(targets)
@@ -245,7 +245,7 @@ def test_robot_component_refreshes_cached_required_start_without_source_input(gh
     monkeypatch.setattr(workflow, 'plan_robot', old_plan)
     inputs = dict(robot=robot, target_planes=targets, rotation_steps=1,
                   collision_check=False)
-    script = str(EXAMPLES/'grasshopper.py')
+    script = str(EXAMPLES/'grasshopper_arm.py')
     first = runpy.run_path(script, init_globals=inputs)
     assert first['status'].startswith('Planned'), first['status']
     assert len(first['configurations']) == len(targets)

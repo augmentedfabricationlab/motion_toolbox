@@ -16,7 +16,7 @@ Optional:
   arm_joint_names List, str: optional override; inferred from robot/tool chain by default
   collision_meshes      List, Mesh: environment obstacles
   model_units_to_metres Item, float: 1 for metres, 0.001 for millimetres (default 1)
-  rotation_steps        Item, int: 1 fixes TCP orientation; default 24 samples a turn
+  rotation_steps        Item, int: 1 fixes TCP orientation; default 16 samples a turn
   collision_check       Item, bool: default True (also self/tool collisions)
   check_edges           Item, bool: default False; opt in to sampled edge checks
   joint_ranges          Item: JSON [[min,max],...]; defaults to model limits
@@ -62,7 +62,7 @@ def _refresh_planner():
     if getattr(recording, 'RECORDING_VERSION', 0) < 8 and recording.current_run() is None:
         importlib.reload(recording)
     import motion_toolbox
-    if getattr(motion_toolbox, '__version__', None) != '0.1.48':
+    if getattr(motion_toolbox, '__version__', None) != '0.1.49':
         importlib.reload(motion_toolbox)
 
     names = (
@@ -129,7 +129,7 @@ try:
         _input('current_pose', []), _input('arm_in_base'), list(_input('arm_joint_names', [])),
         list(_input('collision_meshes', [])), _input('model_units_to_metres', 1.0),
         collision_check=_input('collision_check', True), check_edges=_input('check_edges', False),
-        rotation_steps=_input('rotation_steps', 24), joint_ranges=_input('joint_ranges'),
+        rotation_steps=_input('rotation_steps', 16), joint_ranges=_input('joint_ranges'),
         max_joint_step=_input('max_joint_step', 2.5), fixed_joint_values=_input('fixed_joint_values'),
         collision_options=_input('collision_options'), group=_input('group'),
         scene=_input('collision_scene'),

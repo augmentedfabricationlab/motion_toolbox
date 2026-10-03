@@ -36,7 +36,7 @@ For a ready-to-paste Rhino 8 Python 3 component, use
 Its header lists the exact Grasshopper inputs and outputs. It returns a joint
 DataTree with one branch per target and supports optional TCP-Z rotation sampling.
 This minimal component uses an explicit arm-base/TCP frame and does not check
-collisions. [examples/grasshopper.py](examples/grasshopper.py) is the complete
+collisions. [examples/grasshopper_arm.py](examples/grasshopper_arm.py) is the complete
 robot-object component with PyBullet configuration collision checks.
 Sampled transition checks are opt-in with `check_edges=True` (also for JSON jobs).
 `current_pose` and `arm_in_base` are optional in the robot-object component and
@@ -55,7 +55,8 @@ limits and collisions, and collision rejection reasons. Full per-target records,
 including actual collision-query and cache-hit counts, are in
 `result['target_diagnostics']`. The total timer covers the planner body; outer
 research-recording serialization and Grasshopper output conversion add overhead.
-Default `rotation_steps=24` samples a full turn per target. Use `1` when target
+The arm, stationary-base and mobile-base components default to `rotation_steps=16`,
+sampling a full turn per target. Use `1` when target
 orientations must remain fixed; this reduces the search and can change feasibility.
 The plane-only component also accepts an empty starting pose, but still requires
 explicit controller-base and TCP frames because it has no robot model.
@@ -639,7 +640,7 @@ uncommitted work; this migration neither cleans nor commits it.
 
 ## Research recording
 
-The `grasshopper.py` and `grasshopper_mobile_base.py` components expose
+The `grasshopper_arm.py` and `grasshopper_mobile_base.py` components expose
 `planned_tcp`: add an output with that name to receive the selected world TCP
 planes in model units, including each chosen rotation about TCP Z. Output order
 matches the planned configurations. It is empty if no complete path is found.

@@ -36,7 +36,7 @@ Placement and units:
                    stop at first success
 
 Arm validation and path:
-  rotation_steps   Item, int (8): TCP-Z orientation samples (1 fixes orientation)
+  rotation_steps   Item, int (16): TCP-Z orientation samples (1 fixes orientation)
   max_joint_step   Item, float (2.5): radians per arm joint per target step
   build_path       Item, bool (True): build one joint path for the selected base only
   count_paths      Item, bool (False): also count every possible joint path (slower)
@@ -279,7 +279,7 @@ try:
             fast_validation=_input('fast_validation', True),
             count_paths=_input('count_paths', False),
             collision=scene.is_valid if scene else None,
-            rotation_mode='n_steps', rotation_steps=_input('rotation_steps', 8),
+            rotation_mode='n_steps', rotation_steps=_input('rotation_steps', 16),
             joint_ranges=ranges, periodic=periodic, max_joint_step=_input('max_joint_step', 2.5))
     path_cost = found.cost if found.path_search_count else None
     planned_tcp = [to_rhino(p, 1/scale) for p in found.selected_target_planes]
