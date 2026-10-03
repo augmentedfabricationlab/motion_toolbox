@@ -14,6 +14,7 @@ Required inputs
 ---------------
   target_planes    List, Plane: ordered world TCP targets; +Z points away from robot
   robot            Item: COMPAS/MobileRobot with attached active tool (metre model)
+                   Missing active tool is an error, even with collision_check=False.
 
 Optional inputs (defaults)
 --------------------------
@@ -211,7 +212,7 @@ try:
     from motion_toolbox.geometry import as_plane, to_rhino
     from motion_toolbox.base_planning import find_stationary_base
     from motion_toolbox.stationary_region import StationaryRegion
-    from motion_toolbox.robot_adapter import kinematics_from_robot, resolve_arm_joint_names
+    from motion_toolbox.robot_adapter import kinematics_from_robot, resolve_arm_joint_names, _active_tool
     from motion_toolbox.robot_planning import json_input
     from Grasshopper import DataTree
     from Grasshopper.Kernel.Data import GH_Path
@@ -222,6 +223,8 @@ try:
     model = _input('robot')
     if model is None:
         raise ValueError('Connect robot: its arm geometry, tool and collision model are required')
+    if _active_tool(model, _input('group')) is None:
+        raise ValueError('Attach the calibrated active tool before stationary validation')
     targets = [as_plane(p, scale) for p in _input('target_planes', [])]
     bases = [as_plane(p, scale) for p in _input('candidate_planes', [])]
     names = resolve_arm_joint_names(model, _input('arm_joint_names'), group=_input('group'))

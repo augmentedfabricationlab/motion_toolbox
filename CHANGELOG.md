@@ -4,6 +4,17 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.48 - 2026-10-03
+
+- Require an attached active tool in the stationary Grasshopper component,
+  matching mobile validation. A missing tool for the selected group stops before
+  IK and collision setup, reports a clear status/component warning, and leaves
+  placement and planned_tcp outputs empty, even with collision_check=False.
+- Preserve the shared kinematics adapter's flange-only support for other callers.
+  No dependency changes. Update the general GH component's version guard.
+- Validation: all 358 tests pass, including missing-tool and
+  wrong-group rejection with collision checks on/off, and recovery after attachment.
+
 ## 0.1.47 - 2026-09-29
 
 - Add planned_tcp to the stationary Grasshopper component: selected world TCP

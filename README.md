@@ -414,6 +414,10 @@ The geometry-only modules (`xy_averaging`, `xy_smoothing`, `xy_centerline`,
 For target planes to **one stationary footprint plane** in Grasshopper, paste
 [examples/grasshopper_stationary_base.py](examples/grasshopper_stationary_base.py)
 into a Rhino 8 Python 3 component. Connect the ordered target planes and robot.
+Attach the calibrated active tool first (for the selected `group`, when supplied).
+The stationary component rejects a missing active tool before IK or collision
+setup, even with `collision_check=False`; it reports the error in `status` and
+the component warning and leaves placement/path outputs empty.
 Mark optional parameters as **Optional** in Grasshopper so unconnected inputs
 allow the script to run; `current_pose` and `arm_in_base` can also be removed
 from the component inputs entirely.

@@ -54,6 +54,37 @@ def test_stationary_component_returns_one_base_and_complete_path(gh):
     assert out['status'].startswith('No valid base')
 
 
+@pytest.mark.parametrize('collision_check', [False, True])
+@pytest.mark.parametrize('missing', ['no_tools', 'wrong_group'])
+def test_stationary_rejects_missing_active_tool_before_planning(gh, monkeypatch, collision_check, missing):
+    from types import SimpleNamespace
+    robot, _, targets, _ = robot_fixture()
+    tool = robot._attached_tools['arm']
+    if missing == 'no_tools':
+        robot._attached_tools.clear()
+    messages = []
+    kernel = ModuleType('Grasshopper.Kernel')
+    kernel.GH_RuntimeMessageLevel = SimpleNamespace(Warning='warning')
+    monkeypatch.setitem(sys.modules, 'Grasshopper.Kernel', kernel)
+    inputs = dict(robot=robot, target_planes=targets, candidate_planes=[Plane.world_xy()],
+        arm_in_base=Plane.world_xy(), rotation_steps=1, collision_check=collision_check,
+        group='missing' if missing == 'wrong_group' else 'arm',
+        ghenv=SimpleNamespace(Component=SimpleNamespace(
+            AddRuntimeMessage=lambda level, message: messages.append((level, message)))))
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    result = runpy.run_path(script, init_globals=inputs)
+    assert result['status'].startswith('ValueError: Attach the calibrated active tool before stationary validation')
+    assert result['base_plane'] is None and result['joint_plan'] is None
+    assert result['planned_tcp'] == []
+    assert result['validation_attempts'] == result['base_collision_checks'] == 0
+    assert 'collision_setup_seconds' not in result['timings']
+    assert messages == [('warning', result['status'])]
+    robot._attached_tools['arm'] = tool
+    recovered = runpy.run_path(script, init_globals=dict(inputs, group='arm'))
+    assert recovered['status'].startswith('Found base'), recovered['status']
+    assert len(recovered['planned_tcp']) == len(targets)
+
+
 @pytest.fixture
 def gh(monkeypatch):
     class Tree:
