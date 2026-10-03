@@ -99,6 +99,13 @@ def gh(monkeypatch):
     module.DataTree = Tree
     data = ModuleType('Grasshopper.Kernel.Data')
     data.GH_Path = lambda *x: x
+    rhino = ModuleType('Rhino')
+    geometry = ModuleType('Rhino.Geometry')
+    geometry.Point3d = lambda *coords: tuple(coords)
+    geometry.PolylineCurve = lambda points: list(points)
+    rhino.Geometry = geometry
+    monkeypatch.setitem(sys.modules, 'Rhino', rhino)
+    monkeypatch.setitem(sys.modules, 'Rhino.Geometry', geometry)
     monkeypatch.setitem(sys.modules, 'Grasshopper', module)
     monkeypatch.setitem(sys.modules, 'Grasshopper.Kernel.Data', data)
     monkeypatch.setattr('motion_toolbox.geometry.to_rhino', lambda p, scale=1: p)
@@ -577,3 +584,41 @@ def test_stationary_outdated_installation_reports_loaded_path(gh, monkeypatch):
     assert 'robot_adapter.py' in out['status']
     assert 'toolbox_src' in out['status']
     assert 'restart Rhino' in out['status']
+
+
+@pytest.mark.parametrize('scale', [1., .001])
+@pytest.mark.parametrize('supplied', [False, True])
+def test_stationary_placement_region_is_closed_world_arm_origin_boundary(gh, scale, supplied):
+    from motion_toolbox.stationary_region import StationaryRegion
+    robot, _, targets, _ = robot_fixture()
+    mount = Plane((.2, -.1, .3), (1, 0, 0), (0, 1, 0))
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    inputs = dict(robot=robot,
+        target_planes=[Plane(t.origin/scale, t.xaxis, t.yaxis) for t in targets],
+        arm_in_base=Plane(mount.origin/scale, mount.xaxis, mount.yaxis),
+        units_to_metres=scale, base_height=.1/scale, grid_spacing=1/scale,
+        rotation_steps=1, yaw_steps=1, collision_check=False, build_path=False,
+        candidate_planes=[Plane.world_xy()] if supplied else [])
+    out = runpy.run_path(script, init_globals=inputs)
+    assert out['result'] is not None, out['status']
+    region = StationaryRegion(targets, mount, base_height=.1, projected=True)
+    polygon, _ = region.polygon()
+    expected = np.column_stack((polygon+region.center, np.full(len(polygon), .4)))
+    expected = np.vstack((expected, expected[0]))
+    assert np.allclose(out['result']['placement_region'], expected)
+    assert np.allclose(np.asarray(out['placement_region'])*scale, expected)
+    assert out['placement_region'][0] == out['placement_region'][-1]
+    # A later failing recompute must discard the previous preview.
+    failed = runpy.run_path(script, init_globals=dict(out, robot=None))
+    assert failed['placement_region'] is None
+
+
+def test_stationary_empty_geometry_region_has_no_preview_with_supplied_candidates(gh):
+    robot, _, targets, _ = robot_fixture()
+    targets[1] = Plane(targets[1].origin+np.array([10., 0., 0.]), targets[1].xaxis, targets[1].yaxis)
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_stationary_base.py'), init_globals=dict(
+        robot=robot, target_planes=targets, arm_in_base=Plane.world_xy(),
+        candidate_planes=[Plane.world_xy()], rotation_steps=1, collision_check=False))
+    assert out['result'] is not None, out['status']
+    assert out['result']['placement_region'] == []
+    assert out['placement_region'] is None

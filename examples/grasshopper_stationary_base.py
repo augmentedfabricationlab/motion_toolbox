@@ -74,6 +74,12 @@ Placement:
   base_plane: one Rhino footprint plane, None on failure.
   initial_base_plane: first base-body-clear geometry guess, even if arm
                       validation fails.
+  placement_region: closed Curve in model units at calibrated arm-origin height;
+                    boundary of the sampled XY reach/negative-side region for the
+                    ARM ORIGIN, not the footprint. Before collision/IK checking;
+                    conservative 128-sided reach disks. With candidate_planes,
+                    shows the geometric envelope, not the exclusive candidate set.
+                    Empty on errors/cancellation or when no polygon exists.
   initial_guesses: geometry-valid Rhino footprint seeds;
                    IK/collisions not yet certified.
   standoff: minimum signed distance behind all target planes, metres.
@@ -178,6 +184,7 @@ path_count, solution_counts = '0', []
 ik_option_count, path_search_count = '0', 0
 counts_complete = False
 initial_guesses = []
+placement_region = None
 initial_base_plane = None
 validation_attempts, base_collision_checks = 0, 0
 timings = {}
@@ -241,7 +248,7 @@ try:
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
     result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail'}
     stale = stale or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
-    stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 1
+    stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 2
     stale = stale or getattr(pipeline[pipeline_names.index('motion_toolbox.collision')], 'COLLISION_API_VERSION', 0) < 12
     if stale:
         importlib.invalidate_caches()
@@ -256,7 +263,7 @@ try:
     if (not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
         or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
         or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
-        or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 1):
+        or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 2):
         raise RuntimeError('Outdated planner at {}. Set toolbox_src to the updated motion_toolbox/src directory and restart Rhino.'.format(
             base_module.__file__))
     from motion_toolbox.geometry import to_rhino
@@ -295,6 +302,10 @@ try:
     found = result['found']
     targets = result['targets']
     initial_guesses = [to_rhino(p, 1/scale) for p in result['initial_guesses']]
+    if result['placement_region']:
+        import Rhino.Geometry as rg
+        placement_region = rg.PolylineCurve([
+            rg.Point3d(*(float(v)/scale for v in point)) for point in result['placement_region']])
     candidate_count = result['candidate_count']
     timings = dict(result['timings'])
     valid, path_complete = result['valid'], result['path_complete']
@@ -362,6 +373,7 @@ except (Exception, KeyboardInterrupt) as error:
     result, disconnected_detail, initial_state_failure = None, None, None
     effective_settings, loaded_code = None, None
     initial_guesses, initial_base_plane = [], None
+    placement_region = None
     planned_tcp = []
     counts_complete = False
     base_plane, joint_plan, path_cost = None, None, None

@@ -4,6 +4,20 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.53 - 2026-10-03
+
+- Add stationary Grasshopper placement_region: a closed curve in model units
+  showing the sampled geometric region for the calibrated arm-base origin at
+  its world height, before collision/IK validation. The Python workflow returns
+  its closed XYZ vertex list in metres. Placement and path selection are unchanged.
+- Show the geometric envelope even with supplied candidates; clear the preview
+  on errors/cancellation or an empty region. Document that this is an arm-origin
+  region, not a footprint region or a collision-free placement guarantee.
+- Refresh cached stationary workflows for the new output contract; no dependency
+  changes. Validation: 86 Grasshopper/workflow tests pass, including units,
+  mounting offsets/height, generated/supplied candidates, empty regions and stale
+  output clearing. Rhino curve construction is tested with mocked Rhino types.
+
 ## 0.1.52 - 2026-10-03
 
 - Increase the default TCP-Z rotation samples from 16 to 24 in the arm,

@@ -474,7 +474,16 @@ in successful configuration outputs. The search allows up to `max_validation_att
 fully reachable position, rather than evaluating IK for every candidate. The
 winner's cached IK results feed **one** joint-path search (which may solve the
 graph repeatedly as colliding configurations are rejected). Set
-`build_path=False` to skip that search. The Grasshopper component samples 24 rotations around each target's local
+`build_path=False` to skip that search. Add a `placement_region` output (Curve)
+to preview the closed boundary of the sampled allowed XY region for the calibrated
+arm-base origin, drawn at its world height in model units. This is the geometric
+region before collision/IK checks, not a footprint region or a guarantee of reachability.
+The reach disks use conservative 128-sided polygons. With explicit `candidate_planes`,
+the preview still shows the geometric envelope; only the supplied planes are searched.
+Errors/cancellation clear this output. The Python result contains the closed XYZ
+vertex list in metres as `placement_region`.
+
+The Grasshopper component samples 24 rotations around each target's local
 Z axis by default (`rotation_steps`), retaining its position and normal. Counts
 are specific to this discrete search, not a continuous-space optimum.
 `fast_validation=True` is the default: establish collision-free reachability at

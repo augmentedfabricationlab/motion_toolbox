@@ -15,7 +15,7 @@ from .robot_adapter import kinematics_from_robot, resolve_arm_joint_names, _acti
 from .robot_planning import json_input
 from .stationary_region import StationaryRegion
 
-STATIONARY_WORKFLOW_VERSION = 1
+STATIONARY_WORKFLOW_VERSION = 2
 
 
 def _transition_limits(n, start, max_step, intervals, speed):
@@ -181,6 +181,12 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
         bases, guesses, reason = region.candidates(spacing=spacing, yaw_steps=yaw_steps, cancel_check=cancel_check)
         if not bases:
             raise ValueError(reason+' Check target +Z normals, arm mounting/lift height, or split targets into multiple placements.')
+    # Polygon coordinates are centred XY arm-origin positions, not footprints.
+    polygon, _ = region.polygon(cancel_check=cancel_check)
+    placement_region = [[float(x+region.center[0]), float(y+region.center[1]),
+                         float(region.height)] for x, y in polygon] if len(polygon) >= 3 else []
+    if placement_region:
+        placement_region.append(placement_region[0][:])
     timings = dict(geometry_seconds=perf_counter()-tick)
     report('collision_setup', candidates=len(bases))
     with ExitStack() as stack:
@@ -244,6 +250,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
     timings['total_seconds'] = perf_counter()-started
     report('complete', valid=valid, path_complete=complete)
     result = dict(found=found, targets=targets, initial_guesses=guesses, candidate_count=len(bases),
+        placement_region=placement_region,
         configuration_objects=configurations, configurations=found.configurations,
         selected_target_planes=found.selected_target_planes, selected_tcp_rotations=found.selected_tcp_rotations,
         valid=valid, fabrication_validated=valid, path_complete=complete, cancelled=False,
