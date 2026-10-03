@@ -22,7 +22,7 @@ Optional inputs:
     base_collision_model: auto (default cover boxes on the mobile robot),
     boxes (require that robot profile), or detailed (previous base geometry).
   collision_scene: optional fully configured external scene.
-  rotation_steps: default 16 equally spaced orientations about local TCP Z.
+  rotation_steps: default 24 equally spaced orientations about local TCP Z.
   max_joint_step: default 2.5 rad; max_base_step: default 0.25 m in model units;
   max_yaw_step: default 0.25 rad.
   time_intervals: optional seconds, N-1 transitions (N with current_pose).
@@ -65,7 +65,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.45'
+version='0.1.52'
 planned_tcp=[]
 started=time.monotonic()
 
@@ -110,7 +110,7 @@ try:
         arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
         joint_ranges=_input('joint_ranges'),group=_input('group'),parameters=_input('ur_parameters'),
         collision_meshes=list(_input('collision_meshes',[])),collision_options=_input('collision_options'),
-        scene=_input('collision_scene'),rotation_steps=_input('rotation_steps',16),max_joint_step=_input('max_joint_step',2.5),
+        scene=_input('collision_scene'),rotation_steps=_input('rotation_steps',24),max_joint_step=_input('max_joint_step',2.5),
         max_base_step=float(_input('max_base_step',.25/scale))*scale,max_yaw_step=_input('max_yaw_step',.25),
         time_intervals=json_input(_input('time_intervals')),
         max_base_speed=None if _input('max_base_speed') is None else float(_input('max_base_speed'))*scale,

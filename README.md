@@ -55,7 +55,7 @@ limits and collisions, and collision rejection reasons. Full per-target records,
 including actual collision-query and cache-hit counts, are in
 `result['target_diagnostics']`. The total timer covers the planner body; outer
 research-recording serialization and Grasshopper output conversion add overhead.
-The arm, stationary-base and mobile-base components default to `rotation_steps=16`,
+The arm, stationary-base and mobile-base components default to `rotation_steps=24`,
 sampling a full turn per target. Use `1` when target
 orientations must remain fixed; this reduces the search and can change feasibility.
 The plane-only component also accepts an empty starting pose, but still requires
@@ -274,8 +274,8 @@ by file path and recompute. Required inputs are `robot` (Item) and
 `target_planes` (List). The robot must carry its active calibrated tool.
 The component generates smooth XY passes, chooses straight or radial geometry,
 offsets **each pass** 1.0 m outward and 1.3 m tangentially, and validates
-one upright ground base plane per original TCP. By default it samples 16
-rotations (22.5-degree spacing) around each TCP local Z axis, keeping its position
+one upright ground base plane per original TCP. By default it samples 24
+rotations (15-degree spacing) around each TCP local Z axis, keeping its position
 and extrusion direction fixed. `rotation_steps=1` restores fixed orientation.
 The exact shortest arm trajectory for the selected base path is found among all sampled orientations;
 `selected_target_planes` and `selected_tcp_rotations` (radians) report the
@@ -474,7 +474,7 @@ in successful configuration outputs. The search allows up to `max_validation_att
 fully reachable position, rather than evaluating IK for every candidate. The
 winner's cached IK results feed **one** joint-path search (which may solve the
 graph repeatedly as colliding configurations are rejected). Set
-`build_path=False` to skip that search. It samples sixteen rotations around each target's local
+`build_path=False` to skip that search. The Grasshopper component samples 24 rotations around each target's local
 Z axis by default (`rotation_steps`), retaining its position and normal. Counts
 are specific to this discrete search, not a continuous-space optimum.
 `fast_validation=True` is the default: establish collision-free reachability at

@@ -38,7 +38,7 @@ Placement and units:
                    stop at first success
 
 Arm validation and path:
-  rotation_steps   Item, int (16): TCP-Z orientation samples (1 fixes orientation)
+  rotation_steps   Item, int (24): TCP-Z orientation samples (1 fixes orientation)
   max_joint_step   Item, float (2.5): radians per arm joint per target step
   build_path       Item, bool (True): build one joint path for the selected base only
   count_paths      Item, bool (False): also count every possible joint path (slower)
@@ -284,7 +284,7 @@ try:
         arm_joint_names=_input('arm_joint_names'), group=_input('group'),
         fixed_joint_values=_input('fixed_joint_values'), parameters=_input('ur_parameters'),
         grid_spacing=_input('grid_spacing'), base_height=_input('base_height', 0.),
-        yaw_steps=_input('yaw_steps', 4), rotation_steps=_input('rotation_steps', 16),
+        yaw_steps=_input('yaw_steps', 4), rotation_steps=_input('rotation_steps', 24),
         max_validation_attempts=_input('max_validation_attempts', 3),
         max_joint_step=_input('max_joint_step', 2.5), joint_ranges=_input('joint_ranges'),
         build_path=_input('build_path', True), count_paths=_input('count_paths', False),

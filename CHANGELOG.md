@@ -4,6 +4,15 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.52 - 2026-10-03
+
+- Increase the default TCP-Z rotation samples from 16 to 24 in the arm,
+  mobile-base and stationary-base Grasshopper examples (15-degree spacing).
+  Explicit rotation_steps inputs continue to override the component defaults.
+- Update component input documentation and README; no dependency changes.
+- Validation: all 47 Grasshopper entry-point tests pass; verify all three
+  component fallback values are 24.
+
 ## 0.1.51 - 2026-10-03
 
 - Fix Rhino upgrade/recompute failures importing check_cancel from a cached older
