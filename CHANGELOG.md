@@ -4,6 +4,19 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.54 - 2026-10-03
+
+- Isolated study branch only: add a resumable captured-case stationary 8x8
+  stratified grid experiment with deterministic random sampling, four headings,
+  exhaustive collision-free IK counts, coverage/minimum/total scoring and
+  two local refinement rounds unconstrained by the initial placement region.
+- Retain detailed base/GPS/tool/environment collision coverage and calibrated
+  IK. Save exact candidate layers for finalist path checks; production
+  Grasshopper placement behavior is unchanged. No dependency changes.
+- Validation: 46 study/stationary validation tests pass, including reproducibility, inside-region
+  sampling, calibrated mounting offsets, scoring tradeoffs, unconstrained
+  refinement, full counts after unreachable targets and invalid-base screening.
+
 ## 0.1.53 - 2026-10-03
 
 - Add stationary Grasshopper placement_region: a closed curve in model units
