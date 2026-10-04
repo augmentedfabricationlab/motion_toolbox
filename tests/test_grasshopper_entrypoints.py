@@ -622,3 +622,35 @@ def test_stationary_empty_geometry_region_has_no_preview_with_supplied_candidate
     assert out['result'] is not None, out['status']
     assert out['result']['placement_region'] == []
     assert out['placement_region'] is None
+
+
+@pytest.mark.parametrize('exact_flag', [None, 'fast_validation', 'count_paths'])
+def test_stationary_adaptive_search_outputs_and_exhaustive_fallback(gh, exact_flag):
+    import json
+    robot, q, targets, _ = robot_fixture()
+    inputs = dict(robot=robot, current_pose=q, target_planes=targets,
+        arm_in_base=Plane.world_xy(), rotation_steps=1, collision_check=False,
+        candidate_planes=[Plane.world_xy()], search_strategy='adaptive',
+        search_options={'probe_count': 2, 'probe_rotations': 1, 'max_full_checks': 1})
+    if exact_flag=='fast_validation':inputs['fast_validation']=False
+    if exact_flag=='count_paths':inputs['count_paths']=True
+    script=str(EXAMPLES/'grasshopper_stationary_base.py')
+    out=runpy.run_path(script,init_globals=inputs)
+    assert out['path_complete'], out['status']
+    assert len(out['planned_tcp'])==len(targets)
+    assert not out['valid']  # collision checking deliberately disabled
+    if exact_flag is None:
+        summary=json.loads(out['search_summary'])
+        assert summary['status']=='connected'
+        assert not summary['global_optimum_proven']
+        assert out['counts_complete'] is False
+        assert out['solution_counts']==[]
+        assert json.loads(out['search_diagnostics'])
+        assert out['result']['effective_settings']['search_options']['yaw_steps']==8
+        assert out['result']['effective_settings']['search_options']['connected_finalists']==1
+    else:
+        assert out['search_summary'] is None
+        assert out['counts_complete'] is True
+        assert out['result']['effective_settings']['search_strategy']=='heuristic'
+    failed=runpy.run_path(script,init_globals=dict(out,robot=None))
+    assert failed['search_summary'] is None and failed['search_diagnostics']==[]

@@ -26,7 +26,7 @@ URDF = '''<robot name="benchmark">
 <axis xyz="0 0 1"/><limit lower="-3.14" upper="3.14" effort="1" velocity="1"/></joint></robot>'''
 
 
-def benchmark():
+def benchmark(max_lazy_passes=None):
     os.environ['TOOLBOX_RECORDING'] = '0'
     targets = [Plane((i*.001, 0, 1), (1, 0, 0), (0, 0, -1)) for i in range(150)]
     base = Plane((0, -1, 0), (1, 0, 0), (0, 1, 0))
@@ -35,7 +35,7 @@ def benchmark():
     report = dict(package_version=__version__, python=platform.python_version(),
         platform=platform.system(), repeats=3, statistic='median',
         workload='Synthetic IK candidates; real PyBullet configuration collisions',
-        targets=len(targets), candidates_per_target=len(rows), cases={})
+        targets=len(targets), candidates_per_target=len(rows), max_lazy_passes=max_lazy_passes, cases={})
     with TemporaryDirectory() as folder:
         path = Path(folder)/'robot.urdf'
         path.write_text(URDF)
@@ -56,7 +56,7 @@ def benchmark():
                         result = find_stationary_base(targets, [base], ik_solver=lambda t,b:rows,
                             collision=check, base_collision=world.is_base_valid,
                             objective='heuristic', placement_region=region,
-                            fast_validation=fast, count_paths=False)
+                            fast_validation=fast, count_paths=False, _max_lazy_passes=max_lazy_passes)
                         timings = result.diagnostics[-1]['timings']
                         runs[fast].append(dict(setup_seconds=setup, total_seconds=perf_counter()-started,
                             collision_checks=len(checks), **timings))
@@ -73,8 +73,9 @@ def benchmark():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--max-lazy-passes', type=int)
     args = parser.parse_args()
-    report = json.dumps(benchmark(), indent=2)
+    report = json.dumps(benchmark(args.max_lazy_passes), indent=2)
     if args.output:
         args.output.write_text(report+'\n')
     print(report)

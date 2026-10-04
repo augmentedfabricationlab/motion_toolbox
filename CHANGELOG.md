@@ -4,6 +4,35 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.55 - 2026-10-04
+
+- Study branch only: add opt-in `search_strategy="adaptive"` stationary search
+  with sparse collision-free IK probes, side-on heading preference, XY/yaw
+  refinement beyond the initial reach region, and learned failed-target and
+  disconnected-transition screening. A configurable 1 m footprint clearance
+  preference never replaces detailed base/GPS/tool/environment collision checks.
+- Validate all targets and requested TCP rotations for accepted finalists.
+  Stop at the first connected finalist by default; allow more finalists for
+  path-cost comparison. Preserve exact selected-base path optimality, limits,
+  starting poses, speed constraints and configuration-only collision semantics.
+  Counts remain explicitly omitted; exhaustive/count-path settings restore the
+  existing heuristic workflow. No global base optimum is claimed.
+- Bound optional lazy graph passes by completing remaining collision checks;
+  retain original node order, costs and ties. Existing graph/planner defaults
+  remain unchanged outside adaptive search. No dependency changes.
+- Add Grasshopper search diagnostics, resolved search settings in recordings,
+  dependency-aware adaptive-module reloads and reproducible captured-case replay
+  with independent FK/collision/limit verification. Fix the arm example's stale
+  version guard and a test still expecting the superseded 16-rotation default.
+- Validation: 465 repository tests pass. Captured-case replay finds a complete,
+  independently verified 1,102-target path in 381.88 s including replay checks;
+  the previous heuristic takes 212.94 s but returns a disconnected path. The
+  longer hose capture remains infeasible and is slower to reject adaptively
+  (156.39 s versus 4.51 s); a separate tool-pose audit confirms an obstacle
+  collision at target 7 for all 24 rotations. Clear/collision-heavy synthetic
+  benchmarks preserve configurations and costs. Results and limitations are
+  documented in `docs/adaptive-stationary-study.md`; live Rhino was not exercised.
+
 ## 0.1.54 - 2026-10-03
 
 - Isolated study branch only: add a resumable captured-case stationary 8x8

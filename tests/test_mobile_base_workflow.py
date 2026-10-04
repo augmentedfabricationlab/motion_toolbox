@@ -221,6 +221,6 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     import json
     settings=json.loads(out['diagnostics'][0])
     assert settings['units_to_metres']==1
-    assert settings['rotation_steps']==16
+    assert settings['rotation_steps']==24
     assert settings['base_yaw_degrees']==15.
     assert settings['first_target']['origin'][2]==10

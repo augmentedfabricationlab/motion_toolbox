@@ -76,7 +76,7 @@ def _winding_layer(previous, current, costs, counts, weights, limits, count_path
 def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2.5,
                   edge_valid=None, chunk_size=128, count_paths=True, revolute_joints=None,
                   node_valid=None, stats=None, step_limits=None, cancel_check=None,
-                  node_rejection_group=None):
+                  node_rejection_group=None, max_lazy_passes=None):
     """Minimize summed weighted joint distances over all adjacent-layer edges.
 
     No random endpoints or materialized graph. Memory is bounded by a block
@@ -94,11 +94,17 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     node_rejection_group(i,j) may supply additional verified invalid original
     indices in layer i, for example after completing that layer's collision
     checks. It never merges states; limits, costs and ties remain exact.
+    max_lazy_passes optionally bounds optimistic passes before checking every
+    remaining node. This preserves the optimum and prevents repeated solves
+    from dominating collision-heavy cases; None retains unlimited lazy passes.
     """
     if node_valid is not None:
         if count_paths:
             raise ValueError('node_valid requires count_paths=False; unchecked alternatives cannot be counted')
+        if max_lazy_passes is not None and (int(max_lazy_passes)!=max_lazy_passes or max_lazy_passes<1):
+            raise ValueError('max_lazy_passes must be a positive integer or None')
         return _validate_nodes(layers, node_valid, stats, node_rejection_group=node_rejection_group,
+            max_lazy_passes=max_lazy_passes,
             start=start, weights=weights,
             periodic=periodic, max_step=max_step, edge_valid=edge_valid, chunk_size=chunk_size,
             revolute_joints=revolute_joints, step_limits=step_limits, cancel_check=cancel_check)
@@ -262,7 +268,7 @@ def shortest_path(layers, *, start=None, weights=None, periodic=None, max_step=2
     return GraphResult([q.tolist() for q in configs], indices, total, sum(counts) if count_paths else 0)
 
 
-def _validate_nodes(layers, check, stats, node_rejection_group=None, **options):
+def _validate_nodes(layers, check, stats, node_rejection_group=None, max_lazy_passes=None, **options):
     """Lazy node rejection around the same exact solver, with original indices."""
     mappings = [list(range(len(layer))) for layer in layers]
     accepted = set()
@@ -271,6 +277,20 @@ def _validate_nodes(layers, check, stats, node_rejection_group=None, **options):
                  node_check_seconds=0., original_nodes=sum(map(len,layers)))
     original_edge = options.pop('edge_valid')
     while True:
+        if max_lazy_passes is not None and stats['graph_solves']==max_lazy_passes:
+            # Complete all surviving layers, retaining original order for ties.
+            for i,ids in enumerate(mappings):
+                kept=[]
+                for j in ids:
+                    if options['cancel_check'] is not None:options['cancel_check']()
+                    if (i,j) not in accepted:
+                        tick=perf_counter();valid=check(i,j)
+                        stats['node_check_seconds']+=perf_counter()-tick
+                        stats['node_checks']+=1
+                        if valid:accepted.add((i,j))
+                        else:stats['node_rejections']+=1
+                    if (i,j) in accepted:kept.append(j)
+                mappings[i]=kept
         working = [[layers[i][j] for j in ids] for i,ids in enumerate(mappings)]
         edge = None if original_edge is None else lambda i,a,b: original_edge(
             i, -1 if a < 0 else mappings[i-1][a], mappings[i][b])

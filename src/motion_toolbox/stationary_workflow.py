@@ -15,7 +15,7 @@ from .robot_adapter import kinematics_from_robot, resolve_arm_joint_names, _acti
 from .robot_planning import json_input
 from .stationary_region import StationaryRegion
 
-STATIONARY_WORKFLOW_VERSION = 2
+STATIONARY_WORKFLOW_VERSION = 3
 
 
 def _transition_limits(n, start, max_step, intervals, speed):
@@ -83,8 +83,9 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
                          rotation_steps=16, max_validation_attempts=3, max_joint_step=2.5,
                          joint_ranges=None, build_path=True, count_paths=False, fast_validation=True,
                          collision_check=True, collision_meshes=(), collision_options=None, scene=None,
-                         time_intervals=None, max_joint_speed=None, cancel_check=None, progress=None):
-    """Planes/meshes/search lengths use model units; collision JSON uses metres.
+                         time_intervals=None, max_joint_speed=None, cancel_check=None, progress=None,
+                         search_strategy='heuristic', search_options=None):
+    """Planes/meshes/grid_spacing use model units; JSON search/collision lengths use metres.
 
     External scenes stay open and must match robot/tool/environment. Only a
     clearance query option can accompany a supplied scene. Fixed joints are set
@@ -96,6 +97,8 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
     run = current_run()
     def report(stage, **data):
         check_cancel(cancel_check)
+        if 'elapsed_seconds' in data:
+            data['search_elapsed_seconds'] = data.pop('elapsed_seconds')
         message = dict(stage=stage, elapsed_seconds=perf_counter()-started,
                        research_run=str(run.path) if run else None, **data)
         event('stationary.progress', **message)
@@ -103,6 +106,22 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
             progress(message)
         check_cancel(cancel_check)
     report('setup')
+    if search_strategy not in ('heuristic', 'adaptive'):
+        raise ValueError('search_strategy must be heuristic or adaptive')
+    adaptive = search_strategy == 'adaptive' and fast_validation and not count_paths
+    search_settings = dict(json_input(search_options, {}))
+    allowed_search = {'grid_size', 'yaw_steps', 'probe_count', 'probe_rotations', 'beam_width', 'refinement_steps', 'validation_probe_count', 'connected_finalists',
+                      'max_full_checks', 'initial_reach', 'exploration_reach', 'tool_clearance',
+                      'clearance_weight', 'heading_bias'}
+    if set(search_settings)-allowed_search:
+        raise ValueError('Unknown adaptive search options: '+str(sorted(set(search_settings)-allowed_search)))
+    if adaptive:
+        from inspect import signature
+        from .adaptive_stationary import find_adaptive_stationary_base
+        defaults={name:parameter.default for name,parameter in
+                  signature(find_adaptive_stationary_base).parameters.items() if name in allowed_search}
+        search_settings={**defaults,**search_settings}
+    search_result = None
     if robot is None:
         raise ValueError('Connect robot: its arm geometry, tool and collision model are required')
     if not math.isfinite(units_to_metres) or units_to_metres <= 0:
@@ -179,7 +198,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
     spacing = .5 if grid_spacing is None else grid_spacing*units_to_metres
     if not bases:
         bases, guesses, reason = region.candidates(spacing=spacing, yaw_steps=yaw_steps, cancel_check=cancel_check)
-        if not bases:
+        if not bases and not adaptive:
             raise ValueError(reason+' Check target +Z normals, arm mounting/lift height, or split targets into multiple placements.')
     # Polygon coordinates are centred XY arm-origin positions, not footprints.
     polygon, _ = region.polygon(cancel_check=cancel_check)
@@ -210,6 +229,8 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
         fingerprints = loaded_versions()
         from . import __version__
         settings = dict(package_version=__version__, units_to_metres=units_to_metres,
+            search_strategy='adaptive' if adaptive else 'heuristic', requested_search_strategy=search_strategy,
+            search_options=search_settings,
             arm_joint_names=names, fixed_joint_values=fixed, joint_ranges=ranges,
             mounting_source=solver.mounting_source, arm_in_base=solver.arm_in_base.to_dict(),
             tcp_in_flange=solver.tool.to_dict(), ur_parameters=list(solver.parameters),
@@ -229,15 +250,30 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
             max_validation_attempts=max_validation_attempts, target_count=len(targets),
             collision_validation='configurations_only' if collision_check else 'not_checked')
         event('stationary.effective_settings', **settings)
-        found = find_stationary_base(targets, bases, start, ik_solver=solver,
-            objective='heuristic', placement_region=region, build_path=build_path,
-            base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
-            collision=partial(world.is_valid, clearance=clearance) if world else None,
-            max_validation_attempts=max_validation_attempts, count_paths=count_paths,
-            fast_validation=fast_validation, rotation_mode='n_steps', rotation_steps=rotation_steps,
-            joint_ranges=ranges, periodic=[joints[n].type == 1 for n in names],
-            max_joint_step=step, step_limits=step_limits, cancel_check=cancel_check,
-            progress=lambda message: report(**message))
+        if adaptive:
+            from .adaptive_stationary import find_adaptive_stationary_base, footprint_clearance
+            search_result = find_adaptive_stationary_base(targets, ik_solver=solver,
+                arm_in_base=solver.arm_in_base, candidate_planes=bases if supplied else (),
+                current_pose=start, joint_ranges=ranges, periodic=[joints[n].type == 1 for n in names],
+                rotation_steps=rotation_steps, max_joint_step=step, step_limits=step_limits,
+                build_path=build_path, base_height=base_height*units_to_metres,
+                collision=partial(world.is_valid, clearance=clearance) if world else None,
+                base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
+                clearance_measure=footprint_clearance(world, targets) if world else None,
+                cancel_check=cancel_check, progress=lambda message: report(**message), **search_settings)
+            found = search_result.pop('found')
+            settings['candidate_count'] = search_result['candidate_count']
+            event('stationary.adaptive_search', **search_result)
+        else:
+            found = find_stationary_base(targets, bases, start, ik_solver=solver,
+                objective='heuristic', placement_region=region, build_path=build_path,
+                base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
+                collision=partial(world.is_valid, clearance=clearance) if world else None,
+                max_validation_attempts=max_validation_attempts, count_paths=count_paths,
+                fast_validation=fast_validation, rotation_mode='n_steps', rotation_steps=rotation_steps,
+                joint_ranges=ranges, periodic=[joints[n].type == 1 for n in names],
+                max_joint_step=step, step_limits=step_limits, cancel_check=cancel_check,
+                progress=lambda message: report(**message))
     for diagnostic in found.diagnostics:
         for name, seconds in diagnostic.get('timings', {}).items():
             timings[name] = timings.get(name, 0.)+seconds
@@ -249,7 +285,13 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
         output_names, [joints[n].type for n in output_names]) for q in found.configurations]
     timings['total_seconds'] = perf_counter()-started
     report('complete', valid=valid, path_complete=complete)
-    result = dict(found=found, targets=targets, initial_guesses=guesses, candidate_count=len(bases),
+    status=_status(found, len(targets), build_path, collision_check, speed is not None)
+    if search_result is not None:
+        status=status.replace('positions tested','full validation attempts')
+        status+=' Adaptive search: {} proposals, {} fully reachable finalists.'.format(
+            search_result['candidate_count'],search_result['stats']['full_checks'])
+    result = dict(found=found, targets=targets, initial_guesses=guesses, candidate_count=settings['candidate_count'],
+        search_result=search_result,
         placement_region=placement_region,
         configuration_objects=configurations, configurations=found.configurations,
         selected_target_planes=found.selected_target_planes, selected_tcp_rotations=found.selected_tcp_rotations,
@@ -260,7 +302,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
         unreachable_points=[] if found.base_planes else sorted({i for d in found.diagnostics for i in d.get('unreachable_points', [])}),
         target_diagnostics=found.diagnostics, effective_settings=settings, loaded_modules=fingerprints,
         research_run=str(run.path) if run else None, timings=timings,
-        status=_status(found, len(targets), build_path, collision_check, speed is not None),
+        status=status,
         mounting_source=solver.mounting_source, arm_in_base=solver.arm_in_base, fixed_joint_values=fixed)
     event('stationary.plan_result', valid=valid, path_complete=complete,
           disconnected_detail=found.disconnected_detail, timings=timings)

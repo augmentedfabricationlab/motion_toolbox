@@ -29,18 +29,27 @@ Arm and mounting:
   group           Item, str: active tool group, if needed
 
 Placement and units:
-  candidate_planes List, Plane: optional exclusive footprint set, still checked against placement rules
+  candidate_planes List, Plane: optional exclusive footprint set. Heuristic mode
+                   applies placement-region rules; adaptive mode uses IK/collision feasibility.
   units_to_metres  Item, float (1): supplied planes/meshes/search lengths use these units
   grid_spacing     Item, float (0.5 / units_to_metres): maximum grid spacing
   base_height      Item, float (0): footprint world Z
   yaw_steps        Item, int (4): evenly spaced footprint orientations
   max_validation_attempts Item, int (3): maximum final-position IK checks;
-                   stop at first success
+                   heuristic mode only; stop at first success
 
 Arm validation and path:
+  search_strategy Item, str ('heuristic'): 'adaptive' enables the experimental fast search.
+  search_options  Item, JSON: optional adaptive settings; distances are metres.
+                  tool_clearance defaults to 1 m as a footprint preference, never
+                  a collision substitute. max_full_checks defaults to 3. The
+                  search stops at the first connected finalist by default;
+                  increase connected_finalists (1) to compare more paths. A sampled
+                  search cannot prove a global optimum. fast_validation=False or
+                  count_paths=True restores the existing exhaustive heuristic.
   rotation_steps   Item, int (24): TCP-Z orientation samples (1 fixes orientation)
   max_joint_step   Item, float (2.5): radians per arm joint per target step
-  build_path       Item, bool (True): build one joint path for the selected base only
+  build_path       Item, bool (True): build a joint path; adaptive mode compares finalists
   count_paths      Item, bool (False): also count every possible joint path (slower)
   fast_validation Item, bool (True): skip unused collision alternatives;
                    False restores exact counts. count_paths=True overrides this.
@@ -72,14 +81,18 @@ Outputs
 -------
 Placement:
   base_plane: one Rhino footprint plane, None on failure.
-  initial_base_plane: first base-body-clear geometry guess, even if arm
-                      validation fails.
+  initial_base_plane: heuristic geometry guess, or highest-ranked adaptive probe;
+                      available even if full arm validation fails.
+  search_summary: adaptive search status, counters and validated candidates (JSON).
+  search_diagnostics: adaptive proposal/probe diagnostics (JSON); sparse probe
+                      counts are not exact all-target collision-free counts.
   placement_region: closed Curve in model units at calibrated arm-origin height;
                     boundary of the sampled XY reach/negative-side region for the
                     ARM ORIGIN, not the footprint. Before collision/IK checking;
                     conservative 128-sided reach disks. With candidate_planes,
                     shows the geometric envelope, not the exclusive candidate set.
                     Empty on errors/cancellation or when no polygon exists.
+                    Adaptive search may extend outside this 1.75 m starting envelope.
   initial_guesses: geometry-valid Rhino footprint seeds;
                    IK/collisions not yet certified.
   standoff: minimum signed distance behind all target planes, metres.
@@ -104,8 +117,8 @@ Arm results:
 
 Diagnostics and timing:
   status, diagnostics: summary and detailed results.
-  candidate_count: number of geometry candidates.
-  path_search_count: 0 or 1; complete-path searches performed.
+  candidate_count: number of proposed bases.
+  path_search_count: 0 or 1 for the returned base; adaptive totals are in search_summary.
   validation_attempts: number of expensive arm validations.
   base_collision_checks: number of base-only tests.
   elapsed_seconds: total component execution time.
@@ -185,6 +198,7 @@ ik_option_count, path_search_count = '0', 0
 counts_complete = False
 initial_guesses = []
 placement_region = None
+search_summary, search_diagnostics = None, []
 initial_base_plane = None
 validation_attempts, base_collision_checks = 0, 0
 timings = {}
@@ -228,7 +242,7 @@ try:
         'motion_toolbox.graph', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter',
         'motion_toolbox.base_collision', 'motion_toolbox.collision',
-        'motion_toolbox.base_planning', 'motion_toolbox.stationary_region',
+        'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.adaptive_stationary',
         'motion_toolbox.robot_planning', 'motion_toolbox.stationary_workflow',
     )
     # Inspect cached modules without importing new consumers first: a new
@@ -248,7 +262,7 @@ try:
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
     result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail'}
     stale = stale or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
-    stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 2
+    stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 3
     stale = stale or getattr(pipeline[pipeline_names.index('motion_toolbox.collision')], 'COLLISION_API_VERSION', 0) < 12
     if stale:
         importlib.invalidate_caches()
@@ -263,7 +277,7 @@ try:
     if (not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
         or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
         or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
-        or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 2):
+        or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 3):
         raise RuntimeError('Outdated planner at {}. Set toolbox_src to the updated motion_toolbox/src directory and restart Rhino.'.format(
             base_module.__file__))
     from motion_toolbox.geometry import to_rhino
@@ -290,6 +304,7 @@ try:
         current_pose=_input('current_pose'), arm_in_base=_input('arm_in_base'),
         arm_joint_names=_input('arm_joint_names'), group=_input('group'),
         fixed_joint_values=_input('fixed_joint_values'), parameters=_input('ur_parameters'),
+        search_strategy=_input('search_strategy', 'heuristic'), search_options=_input('search_options'),
         grid_spacing=_input('grid_spacing'), base_height=_input('base_height', 0.),
         yaw_steps=_input('yaw_steps', 4), rotation_steps=_input('rotation_steps', 24),
         max_validation_attempts=_input('max_validation_attempts', 3),
@@ -301,6 +316,10 @@ try:
         max_joint_speed=_input('max_joint_speed'), cancel_check=_cancel, progress=_progress)
     found = result['found']
     targets = result['targets']
+    if result['search_result'] is not None:
+        adaptive_result = result['search_result']
+        search_diagnostics = json.dumps(adaptive_result['search_diagnostics'])
+        search_summary = json.dumps({k: v for k, v in adaptive_result.items() if k != 'search_diagnostics'})
     initial_guesses = [to_rhino(p, 1/scale) for p in result['initial_guesses']]
     if result['placement_region']:
         import Rhino.Geometry as rg
@@ -374,6 +393,7 @@ except (Exception, KeyboardInterrupt) as error:
     effective_settings, loaded_code = None, None
     initial_guesses, initial_base_plane = [], None
     placement_region = None
+    search_summary, search_diagnostics = None, []
     planned_tcp = []
     counts_complete = False
     base_plane, joint_plan, path_cost = None, None, None

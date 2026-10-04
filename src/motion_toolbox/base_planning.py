@@ -495,6 +495,7 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
                 weights=options.get('weights'), count_paths=False,
                 revolute_joints=getattr(solver, 'revolute_joints', None),
                 node_valid=graph_valid, node_rejection_group=rejected_layer, stats=graph_stats,
+                max_lazy_passes=options.get('_max_lazy_passes'),
                 step_limits=options.get('step_limits'),
                 cancel_check=lambda: check_cancel(options.get('cancel_check')))
             result.disconnected_detail = _stationary_disconnection(solved, graph_layers, start, options)

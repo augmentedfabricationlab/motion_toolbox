@@ -21,12 +21,14 @@ def plan(layers, fast=True, collision=None, **kwargs):
 
 @pytest.mark.parametrize('seed', range(12))
 @pytest.mark.parametrize('start', [None, [0., 0.]])
-def test_fast_matches_exhaustive_cost_path_and_ties(seed, start):
+@pytest.mark.parametrize('lazy_passes', [None, 2])
+def test_fast_matches_exhaustive_cost_path_and_ties(seed, start, lazy_passes):
     rng = np.random.RandomState(seed)
     layers = [rng.uniform(-1, 1, (12, 2)).tolist() for _ in range(6)]
     collision = lambda q, b: q[0] > -.3
     eager = plan(layers, False, collision, current_pose=start, count_paths=False)
-    fast = plan(layers, True, collision, current_pose=start, count_paths=False)
+    fast = plan(layers, True, collision, current_pose=start, count_paths=False,
+                _max_lazy_passes=lazy_passes)
     assert fast.configurations == eager.configurations
     assert fast.cost == pytest.approx(eager.cost)
     assert bool(fast.base_planes) == bool(eager.base_planes)

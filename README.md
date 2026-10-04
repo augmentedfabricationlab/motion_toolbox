@@ -454,6 +454,22 @@ supply the override. `diagnostics` reports the mounting source and position.
 For example, a plane at `(0, 0, 0.8)` with XY axes means the arm controller
 origin sits 0.8 metres above the footprint with aligned axes. This is a fixed
 mounting relationship, not the base's world placement or the arm's joint angles.
+The optional experimental search on `study/stationary-grid-search` is enabled with
+`search_strategy="adaptive"` (the default remains `"heuristic"`). Point `toolbox_src`
+at the study checkout's `src` directory and restart Rhino when switching checkouts.
+It scores sparse collision-free IK probes, refines XY and heading, and compares
+fully validated finalists. Details and measured results are in
+[the adaptive stationary study](docs/adaptive-stationary-study.md).
+`search_options` accepts JSON, for example
+`{"tool_clearance":1.0,"max_full_checks":3}`. Distances in this JSON are **metres**.
+The 1 m footprint clearance is a soft preference: actual detailed collision
+geometry remains authoritative. `placement_region` remains the initial 1.75 m
+preview; adaptive search may extend beyond it. `search_summary` and
+`search_diagnostics` expose the search decisions and omitted-count indicators.
+`fast_validation=False` or `count_paths=True` selects the original exhaustive
+heuristic workflow, even when adaptive search is requested. The following
+placement/retry rules describe the default heuristic mode.
+
 Arm joint names are
 inferred from the robot/tool chain; an optional override handles ambiguous models. The
 component generates placements from the common reach/side region automatically.

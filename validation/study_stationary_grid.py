@@ -30,7 +30,14 @@ def atomic_json(path, value):
     path = Path(path)
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(value, indent=2, allow_nan=False), encoding='utf-8')
-    temporary.replace(path)
+    # Windows viewers can briefly hold the destination without delete sharing.
+    for attempt in range(8):
+        try:
+            temporary.replace(path)
+            break
+        except PermissionError:
+            if attempt == 7:raise
+            time.sleep(.02 * (attempt+1))
 
 
 def stratified_grid(polygon, n=8, seed=20261003):
