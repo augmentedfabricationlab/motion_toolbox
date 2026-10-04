@@ -1,10 +1,12 @@
-# Experimental adaptive stationary search
+# Adaptive stationary search and validation
 
-This implementation lives on `study/stationary-grid-search`. Production defaults
-remain unchanged. Select `search_strategy="adaptive"` in the stationary Grasshopper
-example or `plan_stationary_base`; switch back to `"heuristic"` to undo the search
-change. Select the study checkout through `toolbox_src` and restart Rhino when
-switching installations. No captured robot, tool or environment files are committed.
+This implementation was developed on `study/stationary-grid-search` and is now
+available in the main checkout. The default remains `"heuristic"`. Select
+`search_strategy="adaptive"` in the updated stationary Grasshopper example or
+`plan_stationary_base`; switch back to `"heuristic"` to restore the original search.
+Point `toolbox_src` at the main checkout's `src` directory and restart Rhino when
+switching from the study checkout. No captured robot, tool or environment files
+are committed.
 
 ## What the exhaustive study showed
 
@@ -157,13 +159,58 @@ uses calibrated IK, 24 TCP rotations, detailed base/GPS collisions, case integri
 checks, package/code fingerprints and a freshly reconstructed scene for final
 collision, calibrated FK, joint-limit and joint-step verification.
 
-The updated `spraying_ee/one_collision_WS2.stl` extends about 1.008 m behind the
+The intermediate `spraying_ee/one_collision_WS2.stl` used for that hose test extended about 1.008 m behind the
 captured TCP. A derived case replaces only that collision mesh; the original
 capture remains intact. At target index 6 (target 7), all 24 sampled TCP rotations
 intersect `collision_meshes[18]` (the 19th obstacle). Direct tool placement was
 checked against calibrated IK-driven tool poses. This contact is independent of
 base placement for those target/tool poses. It is not evidence that unsampled TCP
 rotations are impossible, nor a reason to remove an obstacle from collision checking.
+
+## Ten-case validation with the shortened tool
+
+On 2026-10-04, ten stationary-printing captures were evaluated with the same
+adaptive settings: 24 TCP rotations, detailed base and GPS collision geometry,
+and a 1 m soft footprint-clearance preference. All captures contained the updated
+tool extending 0.908 m behind the TCP; all 5,402 collision triangles matched the
+source STL. Captured calibration, joint limits, fixed joints and environments
+were retained. Case suffixes below are labels, not additional planner constraints.
+
+| Case label | Targets | Result | Total time (min) |
+| --- | ---: | --- | ---: |
+| `0_8_35` | 1,102 | Verified path | 9.3 |
+| `8_16_35` | 1,017 | Verified path | 8.4 |
+| `16_28_40` | 1,805 | Verified path | 13.3 |
+| `28_40_40` | 1,951 | Verified path | 13.3 |
+| `40_50_40` | 1,372 | Verified path | 12.0 |
+| `50_56_35` | 907 | No path found | 2.2 |
+| `56_62_35` | 949 | Verified path | 8.8 |
+| `50_54_35` | 583 | Verified path | 4.8 |
+| `50_55_35` | 744 | No path found | 2.8 |
+| `20261004_113701_6ba1788e` | 297 | Verified path | 2.3 |
+
+Eight cases produced complete paths covering 9,076 targets. Each successful path
+was independently replayed in a fresh collision scene and checked against
+calibrated TCP FK, joint limits and joint steps. Windows CPU policy restoration
+and input/code fingerprints were verified for all ten runs. Swept transitions
+were not checked.
+
+Up to two independent planner processes ran concurrently. The initial seven-case
+batch took 33.8 minutes; the three-case extension took 5.2 minutes. Per-case times
+include setup and fresh verification and reflect concurrent CPU load, so they
+are not directly comparable with the isolated benchmarks above.
+
+The bounded search found no path for `50_56_35` or `50_55_35`. Their last recorded
+failed targets were respectively 901 and 744 (one-based); all 192 tested
+configurations at those candidate/target pairs collided with robot geometry.
+Tool/chassis and robot self-collisions were prominent. Separate tool-only audits
+found no tool/environment contact at any solver-flagged target in either case
+across all 24 sampled rotations. These failures do not prove global infeasibility.
+The shorter `50_54_35` capture succeeded; the result does not establish an exact
+print-range boundary because the exported target sets differ.
+
+Research artifacts and input geometry remain outside the repository. Use the
+captured-case runner above to reproduce evaluations from the original exports.
 
 Offline Grasshopper tests use mocked Rhino types; live Rhino UI recomputes have
 not been exercised in this study. The complete repository suite passes 465 tests,

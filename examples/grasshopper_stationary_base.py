@@ -39,7 +39,7 @@ Placement and units:
                    heuristic mode only; stop at first success
 
 Arm validation and path:
-  search_strategy Item, str ('heuristic'): 'adaptive' enables the experimental fast search.
+  search_strategy Item, str ('heuristic'): 'adaptive' enables the adaptive base search.
   search_options  Item, JSON: optional adaptive settings; distances are metres.
                   tool_clearance defaults to 1 m as a footprint preference, never
                   a collision substitute. max_full_checks defaults to 3. The

@@ -454,9 +454,10 @@ supply the override. `diagnostics` reports the mounting source and position.
 For example, a plane at `(0, 0, 0.8)` with XY axes means the arm controller
 origin sits 0.8 metres above the footprint with aligned axes. This is a fixed
 mounting relationship, not the base's world placement or the arm's joint angles.
-The optional experimental search on `study/stationary-grid-search` is enabled with
-`search_strategy="adaptive"` (the default remains `"heuristic"`). Point `toolbox_src`
-at the study checkout's `src` directory and restart Rhino when switching checkouts.
+The adaptive stationary search is available in the main checkout. Enable it with
+`search_strategy="adaptive"` (the default remains `"heuristic"`). Use the updated
+stationary component script and point `toolbox_src` at `motion_toolbox/src`;
+restart Rhino when switching from the study checkout.
 It scores sparse collision-free IK probes, refines XY and heading, and compares
 fully validated finalists. Details and measured results are in
 [the adaptive stationary study](docs/adaptive-stationary-study.md).

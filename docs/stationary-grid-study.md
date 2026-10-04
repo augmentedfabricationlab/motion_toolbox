@@ -1,10 +1,10 @@
 # Stationary grid study
 
-This experiment lives on `study/stationary-grid-search` in a separate checkout.
-The main checkout and all Grasshopper component behavior remain unchanged.
-To abandon the experiment, keep using the main checkout. No rollback of the
-production planner or captured case is needed. Do not point Grasshopper at this
-study checkout while comparing results.
+This reproducible grid experiment was developed on `study/stationary-grid-search`
+and is now available in the main checkout. It remains an offline validation tool;
+running it does not change Grasshopper settings or captured cases. The resulting
+[adaptive stationary solver](adaptive-stationary-study.md) is available separately
+through `search_strategy="adaptive"`.
 
 The input case is verified against every manifest hash before loading. For the
 20261003_220724_0d413599 case, the captured rotation setting is 1; this experiment
@@ -57,11 +57,11 @@ headings and two refinement levels remain a limited search of pose space.
 
 ## Running and resuming
 
-From this study checkout, using the main checkout's existing Python environment:
+From the main checkout, using its existing Python environment:
 
 ```powershell
 $env:TOOLBOX_RECORDING='0'
-..\motion_toolbox\.venv\Scripts\python.exe validation/study_stationary_grid.py `
+.\.venv\Scripts\python.exe validation/study_stationary_grid.py `
   C:\Users\david\Documents\motion_planning_cases\20261003_220724_0d413599 `
   --output ..\research_runs\stationary_grid_20261003_220724 --workers 6
 ```
@@ -75,7 +75,7 @@ candidate or worker boundaries. Worker progress and overall progress are saved.
 Create a self-contained interactive report, including from partial checkpoints:
 
 ```powershell
-..\motion_toolbox\.venv\Scripts\python.exe -m validation.report_stationary_grid `
+.\.venv\Scripts\python.exe -m validation.report_stationary_grid `
   ..\research_runs\stationary_grid_20261003_220724
 ```
 

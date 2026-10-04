@@ -4,6 +4,16 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## Unreleased
+
+- Integrate the tested 0.1.54/0.1.55 stationary study work into main. Adaptive
+  search remains opt-in with `search_strategy="adaptive"`; existing defaults and
+  exhaustive-count fallback are unchanged. Update Grasshopper setup instructions
+  to use the main checkout and document the ten-case shortened-tool evaluation:
+  eight complete, independently verified paths and two bounded-search failures.
+  Research artifacts and captured geometry remain outside the repository.
+  Validation after integration: all 465 repository tests pass on main.
+
 ## 0.1.55 - 2026-10-04
 
 - Study branch only: add opt-in `search_strategy="adaptive"` stationary search
