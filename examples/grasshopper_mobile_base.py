@@ -44,6 +44,8 @@ Outputs:
   applied_yaw_adjustments_degrees: one signed adaptive yaw change per target.
   base_path, averaged_line, centerline: geometry previews.
 Configuration collisions are checked; transitions are not collision-checked.
+Shoulder, elbow and wrist branches stay fixed throughout the validated path,
+including current_pose when supplied. Ambiguous branch boundaries are rejected.
 TCP positions/Z axes stay fixed.
 selected_target_planes and selected_tcp_rotations report the validated selection.
 Planning has no runtime limit. No robot is commanded.
@@ -71,7 +73,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.56'
+version='0.1.57'
 planned_tcp=[]
 started=time.monotonic()
 

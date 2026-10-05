@@ -4,6 +4,27 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.57 - 2026-10-05
+
+- Keep the mobile Grasshopper UR planner within one shoulder/elbow/wrist
+  configuration branch, including a supplied starting configuration. Reject
+  ambiguous branch boundaries and full elbow/wrist turns even when joint step
+  limits would allow them. Select the shortest remaining collision-checked path;
+  return no validated trajectory when no connected path survives.
+- Report branch checks, the selected branch, and rejection reasons in results
+  and disconnected-transition diagnostics. Calibrated UR solvers use nominal UR
+  branch classification. Swept collision checking remains unchanged. Custom
+  numeric solvers can provide `configuration_branch(q)`; no dependency changes.
+- Regression coverage includes elbow/wrist flips below the joint step limit,
+  shoulder changes, singular boundaries, starting poses, alternate paths,
+  collision replanning, full turns and periodic aliases. All 487 repository
+  tests pass.
+- Replay of capture `20261004_215354_587eccf7` at 24 TCP rotations validates
+  all 2,721 targets in 278.28 s, with zero branch changes. Independent scene/FK
+  validation passes every returned configuration and all movement limits
+  (maximum joint step 0.29345 rad; maximum FK matrix error 7.01e-8).
+  Live Rhino and swept transition collisions were not tested.
+
 ## 0.1.56 - 2026-10-05
 
 - Add optional Grasshopper `straight_line_motion` Boolean toggle (default off)

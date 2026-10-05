@@ -90,6 +90,8 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
     time_intervals contains one duration per transition (N-1, or N with a start
     configuration). The optional starting arm configuration is at bases[0]; an
     approach from another base location is not planned. Speeds require times.
+    Solvers exposing configuration_branch must retain one shoulder/elbow/wrist
+    branch, including the starting pose. Ambiguous branch boundaries are rejected.
     """
     started=perf_counter()
     offsets=rotation_offsets("n_steps",steps=rotation_steps)
@@ -196,10 +198,38 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         first = int(current_pose is None)
         per_layer[first:] = np.minimum(step, durations[:,None]*np.broadcast_to(max_joint_speed,(6,)))
     checked_nodes = {}
+    branch_of = getattr(solver, 'configuration_branch', None)
+    branches = [[branch_of(q) for q in rows] for rows in layers] if branch_of else None
+    start_branch = None
+    branch_rejections = Counter()
+    def same_branch(i, a, b):
+        before = start_branch if a < 0 else branches[i-1][a]
+        after = branches[i][b]
+        if before is None or after is None:
+            branch_rejections['ambiguous_configuration_branch'] += 1
+            return False
+        changed = [name for name,x,y in zip(('shoulder','elbow','wrist'),before,after) if x != y]
+        if changed:
+            branch_rejections.update(name+'_branch_change' for name in changed)
+            return False
+        # Same endpoint signs must not hide a full revolution through a boundary.
+        q0 = np.asarray(current_pose if a < 0 else layers[i-1][a])
+        delta = np.asarray(layers[i][b])-q0
+        delta[periodic] = (delta[periodic]+math.pi)%(2*math.pi)-math.pi
+        if any(abs(delta[j]) >= math.pi for j in (2,4)):
+            branch_rejections['branch_boundary_crossing'] += 1
+            return False
+        return True
     def node_valid(i,j):
         nonlocal collision_hits, collision_checks
         if (i,j) in checked_nodes:
             return checked_nodes[i,j]
+        if branches is not None and branches[i][j] is None:
+            if not diagnostics[i]['collision_free']:
+                diagnostics[i]['state'] = 'configuration_branch_rejection'
+            branch_rejections['ambiguous_configuration_branch'] += 1
+            checked_nodes[i,j] = False
+            return False
         check()
         key = keys[i], tuple(layers[i][j])
         if key in collision_cache:
@@ -249,10 +279,15 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
             initial_failure = 'Starting configuration exceeds joint limits'
         elif not world.is_valid(current_pose,bases[0],clearance=clearance):
             initial_failure = world.last_failure or 'Starting configuration collision'
+        if branch_of:
+            start_branch = branch_of(current_pose)
+            if start_branch is None and initial_failure is None:
+                initial_failure = 'Starting configuration lies on an ambiguous shoulder/elbow/wrist branch boundary'
     if all(len(rows) for rows in layers) and not transitions and initial_failure is None:
         if progress is not None:
             progress(dict(stage='joint_graph',total=len(targets),elapsed_seconds=perf_counter()-started))
         solved=shortest_path(layers,start=current_pose,periodic=periodic,max_step=max_joint_step,
+            edge_valid=same_branch if branches is not None else None,
             step_limits=per_layer,node_valid=node_valid,stats=graph_stats,count_paths=False,
             node_rejection_group=rejection_group if _complete_collision_layers else None,
             revolute_joints=getattr(solver,'revolute_joints',None),cancel_check=cancel_check)
@@ -281,10 +316,12 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         disconnected_detail=dict(from_target=failure_layer-1,to_target=failure_layer,
             minimum_joint_step_limit_ratio=None if best is None else best[0],
             joint_deltas_at_nearest_pair=None if best is None else best[1],joint_step_limits=limit.tolist(),
-            reason=initial_failure or 'No connected path under configuration and movement constraints')
+            reason=initial_failure or 'No connected path under configuration and movement constraints',
+            configuration_branch_rejections=dict(branch_rejections))
     counts=dict(Counter(d['state'] for d in diagnostics))
     if valid:
-        status='Validated {} targets and the exact shortest connected arm path; configuration collisions checked, transitions not collision-checked.'.format(len(targets))
+        status='Validated {} targets and the exact shortest connected arm path{}; configuration collisions checked, transitions not collision-checked.'.format(
+            len(targets), ' within one shoulder/elbow/wrist branch' if branches is not None else '')
     elif initial_failure:
         status=initial_failure+'. No validated arm path.'
     elif unreachable:
@@ -293,6 +330,8 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         status='Proposal failed at base transition {} -> {}.'.format(transitions[0]['from_target'],transitions[0]['to_target'])
     else:
         status='Disconnected arm path at transition {} -> {}.'.format(failure_layer-1 if failure_layer is not None else '?',failure_layer)
+        if branch_rejections:
+            status += ' Shoulder/elbow/wrist configuration changes or branch boundaries were rejected.'
     timing['validation_seconds'] = perf_counter()-started
     for name,value in timing.items():metric('mobile.'+name,value,'s')
     for name,value in dict(ik_cache_hits=ik_hits,collision_cache_hits=collision_hits,collision_checks=collision_checks).items():
@@ -305,7 +344,9 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         selected_tcp_rotations=selected_angles,selected_target_planes=selected_targets,
         status=status,target_diagnostics=diagnostics,state_counts=counts,unreachable_points=unreachable,
         unchecked_points=unchecked,transition_failures=transitions,disconnected_target=failure_layer,
-        disconnected_detail=disconnected_detail,edge_rejection_reasons={},initial_state_failure=initial_failure,
+        disconnected_detail=disconnected_detail,edge_rejection_reasons=dict(branch_rejections),initial_state_failure=initial_failure,
+        configuration_branch_check_applied=branches is not None,
+        selected_configuration_branch=list(branches[0][solved.indices[0]]) if valid and branches is not None else None,
         max_joint_step=max_joint_step,path_length=solved.cost if valid else None,
         collision_check_applied=True,check_edges=False,collision_validation='configurations_only',
         collision_failed_layer_policy='complete_exact_checks' if _complete_collision_layers else 'selected_nodes_only',

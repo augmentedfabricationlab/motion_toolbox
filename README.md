@@ -380,6 +380,19 @@ an optional Item input named `base_yaw_margin_degrees` and exposes
 The [adaptive-yaw capture replay](docs/adaptive-yaw-validation-20260922.md)
 validates all 1,481 targets with final adjustments between -21.25 and +21.25 degrees.
 `max_yaw_step` defaults to 0.25 rad, `max_joint_step` to 2.5 rad.
+The mobile UR planner also keeps one shoulder/elbow/wrist configuration branch
+throughout the print, including `current_pose` when supplied. Joint step limits
+alone cannot prevent an elbow-up/down or wrist flip. The graph rejects branch
+changes and ambiguous branch-boundary configurations, choosing another connected
+path when available. Otherwise it returns no validated configurations and reports
+the disconnected target and `edge_rejection_reasons`. Without a starting pose,
+the first branch is chosen by the shortest valid path. Full-turn angle aliases
+have the same branch, but transitions through a full elbow/wrist turn are rejected.
+`configuration_branch_check_applied` and `selected_configuration_branch` report
+the check and selected nominal UR shoulder/elbow/wrist signs. Calibrated UR
+solvers use this same nominal branch convention; this is not a swept-motion or
+general singularity-clearance guarantee. Custom numeric solvers must expose
+`configuration_branch(q)` to enable this check.
 Robot models, tool calibration, fixed joints and collision-option lengths use
 metres/radians. See the script docstring for all inputs. Old switches disabling
 configuration collision checking are rejected explicitly. Legacy `check_edges` inputs
