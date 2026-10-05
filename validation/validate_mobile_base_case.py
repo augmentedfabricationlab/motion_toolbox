@@ -65,6 +65,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--rotation-steps',type=int,default=16)
     parser.add_argument('--fixed-offsets',action='store_true')
+    parser.add_argument('--straight-line-motion',action='store_true')
     parser.add_argument('--geometry-mode',choices=('auto','legacy'),default='auto')
     parser.add_argument('--geometry-options',type=json.loads,default={})
     parser.add_argument('--normal-offset',type=float,default=1.0)
@@ -87,6 +88,7 @@ def main():
         if args.include_gps:command.append('--include-gps')
         command += ['--base-screening',args.base_screening,'--base-collision-model',args.base_collision_model]
         if args.fixed_offsets:command.append('--fixed-offsets')
+        if args.straight_line_motion:command.append('--straight-line-motion')
         with (args.output/'worker.log').open('w') as log:
             run=subprocess.run(command,stdout=log,stderr=subprocess.STDOUT)
         if run.returncode==0:
@@ -132,6 +134,7 @@ def main():
                 joint_ranges=r['joint_ranges'],periodic=r['periodic'],current_pose=r['current_pose'],
                 progress=progress,adapt_offsets=not args.fixed_offsets,rotation_steps=args.rotation_steps,
                 geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
+                straight_line_motion=args.straight_line_motion,
                 normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,base_yaw_degrees=args.base_yaw_degrees,base_yaw_margin_degrees=args.base_yaw_margin_degrees,
                 max_joint_step=r['max_joint_step'],collision_options=r['collision_options'],
                 **{k:v for k,v in r.get('mobile_options',{}).items() if k in
@@ -152,6 +155,7 @@ def main():
     with ResearchRun(args.output/'research',name='mobile capture replay',
                      config=dict(case=str(args.case),case_sha256=case_hash,rotation_steps=args.rotation_steps,
                                  adapt_offsets=not args.fixed_offsets,check_edges=False,
+                                 straight_line_motion=args.straight_line_motion,
                                  geometry_mode=args.geometry_mode,geometry_options=args.geometry_options,
                                  normal_offset=args.normal_offset,tangent_offset=args.tangent_offset,
                                  base_yaw_degrees=args.base_yaw_degrees,base_yaw_margin_degrees=args.base_yaw_margin_degrees,base_screening=args.base_screening,

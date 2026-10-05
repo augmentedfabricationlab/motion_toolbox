@@ -20,9 +20,37 @@ from .planning import candidates, rotation_offsets
 from .graph import shortest_path
 
 
+class _StraightLineGeometry:
+    """One fixed ground line and heading, independent of traversal direction."""
+
+    def __init__(self, guide, bases, normal_offset, tangent_offset):
+        origins = np.array([b.origin for b in bases])
+        center = origins.mean(axis=0)
+        direction = np.r_[guide['direction'], 0.]
+        # Translate only perpendicular to the path: every original base's
+        # longitudinal coordinate, both endpoints and all reversals survive.
+        projected = center + ((origins-center)@direction)[:, None]*direction
+        self.x = np.r_[guide['perpendicular'], 0.]
+        alignment = float(np.mean(np.array([b.xaxis for b in bases]) @ self.x))
+        if abs(alignment) < .1:
+            raise ValueError('Ambiguous wall side for straight-line motion')
+        self.x *= 1. if alignment > 0 else -1.
+        self.y = np.cross([0., 0., 1.], self.x)
+        self.points = projected + normal_offset*self.x - tangent_offset*self.y
+
+    def frames(self, offsets, indices=None):
+        ids = np.arange(len(self.points)) if indices is None else np.asarray(indices)
+        offsets = np.broadcast_to(np.asarray(offsets, dtype=float), (len(ids), 2))
+        if not np.isfinite(offsets).all():
+            raise ValueError('Offsets must be finite')
+        origins = self.points[ids] - offsets[:, :1]*self.x + offsets[:, 1:]*self.y
+        return [Plane(p, self.x, self.y) for p in origins]
+
+
 @recorded
 def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
-                       geometry_mode='auto', geometry_options=None, _geometry_out=None):
+                       geometry_mode='auto', geometry_options=None, straight_line_motion=False,
+                       _geometry_out=None):
     targets = [as_plane(t) for t in targets]
     smoothing = smooth_xy([t.origin for t in targets], max_xy_deviation)
     guide = centerline_xy(smoothing['curve'])
@@ -35,6 +63,15 @@ def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tang
             x_offset=-normal_offset, y_offset=tangent_offset, pass_points=smoothing['curve'])
         geometry.x, geometry.y = frames['x_axes'], frames['y_axes']
     bases = geometry.frames([normal_offset, tangent_offset])
+    if straight_line_motion:
+        geometry = _StraightLineGeometry(guide, bases, normal_offset, tangent_offset)
+        bases = geometry.frames([normal_offset, tangent_offset])
+        guide = dict(guide, curve=guide['origin'] + guide['station_longitudinal'][:, None]
+                     * guide['direction'], station_transverse=np.zeros_like(guide['station_transverse']))
+        diagnostics = dict(geometry_mode='straight_line', geometry_options={},
+            path_sections=[dict(id=0, kind='straight', first=0, last=len(targets)-1,
+                                pass_id=0, heading_change_deg=0.)],
+            section_ids=np.zeros(len(targets), dtype=int), transition_regions=[], unresolved_sections=[])
     if _geometry_out is not None:
         _geometry_out.append(geometry)
     return dict(base_planes=bases, smoothing=smoothing, centerline=guide,
@@ -281,7 +318,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
 def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offsets=True,
                    max_xy_deviation=.25, normal_offset=1.0, tangent_offset=1.3,
                    base_yaw_degrees=0., base_yaw_margin_degrees=30.,
-                   geometry_mode='auto', geometry_options=None, **limits):
+                   geometry_mode='auto', geometry_options=None, straight_line_motion=False, **limits):
     """Numeric mobile workflow shared by GH and capture replay; lengths in metres."""
     from .mobile_adaptation import repair_offsets
     base_yaw_degrees = float(base_yaw_degrees)
@@ -290,6 +327,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     base_yaw_margin_degrees = float(base_yaw_margin_degrees)
     if not math.isfinite(base_yaw_margin_degrees) or not 0 <= base_yaw_margin_degrees <= 180:
         raise ValueError('base_yaw_margin_degrees must be between 0 and 180')
+    effective_yaw_margin = 0. if straight_line_motion else base_yaw_margin_degrees
     angle = math.radians(base_yaw_degrees % 360.)
     c, s = math.cos(angle), math.sin(angle)
     def orient(bases):
@@ -303,7 +341,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     prepared = []
     proposal = generate_base_path(targets,max_xy_deviation=max_xy_deviation,
         normal_offset=normal_offset,tangent_offset=tangent_offset, geometry_mode=geometry_mode,
-        geometry_options=geometry_options, _geometry_out=prepared)
+        geometry_options=geometry_options, straight_line_motion=straight_line_motion,
+        _geometry_out=prepared)
     if proposal.get('unresolved_sections'):
         raise ValueError('Unresolved strong curvature in sections '+str(proposal['unresolved_sections'])+
                          '; inspect generate_base_path diagnostics or adjust geometry_options')
@@ -321,7 +360,9 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     applied_yaw = np.zeros(len(targets))
     attempts = []
     repair_seconds = 0.
-    if adapt_offsets and not result['fabrication_validated'] and not result['initial_state_failure']:
+    # Straightening is a pure transverse projection: do not let local repairs
+    # pull its endpoints inward. A rejected projection uses the original planner.
+    if adapt_offsets and not straight_line_motion and not result['fabrication_validated'] and not result['initial_state_failure']:
         def placement_probe(indices,bases):
             oriented = orient(bases)
             # Screen the entire anchor group cheaply before generating any IK.
@@ -359,7 +400,7 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
             validate=validate,probe=probe,normal_offset=normal_offset,tangent_offset=tangent_offset,
             search_extent=float(extent),cancel_check=limits.get('cancel_check'),
             build_frames=prepared[0].frames if prepared else None,prefer_progress=True,
-            yaw_margin_degrees=base_yaw_margin_degrees)
+            yaw_margin_degrees=effective_yaw_margin)
         if applied.shape[1] == 3:
             applied_yaw = np.rad2deg(applied[:,2])
             applied = applied[:,:2]
@@ -369,6 +410,10 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     proposal.update(applied_offsets=applied,repair_attempts=attempts,adapt_offsets=bool(adapt_offsets),
                     base_yaw_degrees=base_yaw_degrees,
                     base_yaw_margin_degrees=base_yaw_margin_degrees,
+                    effective_base_yaw_margin_degrees=effective_yaw_margin,
+                    straight_line_motion=bool(straight_line_motion),
+                    straight_line_motion_requested=bool(straight_line_motion),
+                    straight_line_fallback=False,
                     applied_yaw_adjustments_degrees=applied_yaw,
                     applied_base_yaw_degrees=base_yaw_degrees+applied_yaw,
                     excluded_collision_links=sorted(getattr(world,'excluded_collision_links',())),
@@ -382,6 +427,25 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
     event('mobile.plan_result',valid=result['fabrication_validated'],targets=len(targets),
           repair_attempts=len(attempts),timings=proposal['timings'],
           geometry_mode=geometry_mode,path_sections=proposal.get('path_sections',[]))
+    if straight_line_motion and not result['fabrication_validated']:
+        if limits.get('progress') is not None:
+            limits['progress'](dict(stage='straight_line_fallback', reason=proposal['status']))
+        fallback = plan_base_path(targets, solver=solver, world=world,
+            joint_ranges=joint_ranges, periodic=periodic, adapt_offsets=adapt_offsets,
+            max_xy_deviation=max_xy_deviation, normal_offset=normal_offset,
+            tangent_offset=tangent_offset, base_yaw_degrees=base_yaw_degrees,
+            base_yaw_margin_degrees=base_yaw_margin_degrees,
+            geometry_mode=geometry_mode, geometry_options=geometry_options, **limits)
+        fallback.update(straight_line_motion_requested=True, straight_line_fallback=True,
+            straight_line_attempt=dict(status=proposal['status'],
+                state_counts=proposal['state_counts'], unreachable_points=proposal['unreachable_points'],
+                transition_failures=proposal['transition_failures'],
+                disconnected_target=proposal['disconnected_target'],
+                repair_attempts=len(attempts), timings=proposal['timings']))
+        fallback['timings']['straight_line_attempt_seconds'] = proposal['timings']['planning_seconds']
+        fallback['timings']['planning_seconds'] = perf_counter()-started
+        fallback['status'] = 'Straight-line candidate failed validation; using non-straight planner. '+fallback['status']
+        return fallback
     return proposal
 
 
@@ -455,6 +519,10 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
         excluded_collision_links=proposal['excluded_collision_links'],
         base_yaw_degrees=proposal['base_yaw_degrees'],
         base_yaw_margin_degrees=proposal['base_yaw_margin_degrees'],
+        effective_base_yaw_margin_degrees=proposal['effective_base_yaw_margin_degrees'],
+        straight_line_motion=proposal['straight_line_motion'],
+        straight_line_motion_requested=proposal['straight_line_motion_requested'],
+        straight_line_fallback=proposal['straight_line_fallback'],
         rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
         tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),

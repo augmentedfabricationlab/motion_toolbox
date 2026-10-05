@@ -10,6 +10,12 @@ Optional inputs:
   normal_offset, tangent_offset: model units, defaults 1.0 m and 1.3 m.
   geometry_mode: auto (default) or legacy; auto uses radial offsets on arcs.
   geometry_options: JSON thresholds in metres/degrees (see README).
+  straight_line_motion: Boolean toggle, default False. Fix heading and move only
+    along one fitted XY line, preserving back-and-forth traversal. Overrides
+    curved geometry and adaptive repairs to preserve the longitudinal extent.
+    If validation fails, fall back to the normal non-straight planner.
+    normal_offset fixes the line's sideways placement; base_yaw_degrees sets
+    one constant orientation relative to its normal.
   base_yaw_degrees: Item / Number slider, default 0; rotate base orientation
     at its origin about upright Z. Positive is counterclockwise from above.
   base_yaw_margin_degrees: default 30; adaptive yaw may depart by +/- this
@@ -65,7 +71,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.52'
+version='0.1.56'
 planned_tcp=[]
 started=time.monotonic()
 
@@ -104,6 +110,7 @@ try:
         normal_offset=float(_input('normal_offset',1.0/scale))*scale,
         tangent_offset=float(_input('tangent_offset',1.3/scale))*scale,
         geometry_mode=_input('geometry_mode','auto'),geometry_options=json_input(_input('geometry_options'),{}),
+        straight_line_motion=bool(_input('straight_line_motion',False)),
         base_yaw_degrees=float(_input('base_yaw_degrees',0.)),
         base_yaw_margin_degrees=float(_input('base_yaw_margin_degrees',30.)),
         current_pose=_input('current_pose'),arm_in_base=_input('arm_in_base'),

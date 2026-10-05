@@ -4,7 +4,24 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
-## Unreleased
+## 0.1.56 - 2026-10-05
+
+- Add optional Grasshopper `straight_line_motion` Boolean toggle (default off)
+  and matching offline replay flag. Post-process the base proposal onto one
+  central line with constant heading, preserving every longitudinal coordinate,
+  both ends and back-and-forth traversal. Keep the fixed yaw slider available.
+- Validate the projected path with the existing calibrated IK, placement,
+  configuration collision and movement checks. If it fails, use the original
+  adaptive planner and report the straight candidate's failure and fallback in
+  diagnostics. Never mark an invalid fallback as validated. No dependency changes.
+- Bump the arm component's package reload guard with the package version.
+- Validation: all 477 repository tests pass. Replay of capture
+  `20261004_215354_587eccf7` at 24 TCP rotations preserves the straight candidate's
+  2.203467547 m longitudinal span and constant heading. Placement/IK failures
+  reject that candidate; fallback validates all 2,721 targets in 714.98 s overall.
+  Independent scene/FK replay passes all configurations, joint and movement limits
+  (maximum FK matrix error 7.01e-8).
+  Configuration collisions are checked; swept transitions and live Rhino are not.
 
 - Integrate the tested 0.1.54/0.1.55 stationary study work into main. Adaptive
   search remains opt-in with `search_strategy="adaptive"`; existing defaults and

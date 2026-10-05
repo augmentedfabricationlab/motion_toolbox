@@ -332,6 +332,31 @@ base orientations, including during adaptive repairs.
 `base_yaw_margin_degrees` defaults to **30**, allowing adaptive rotations up to
 **+/-30 degrees** around the prepared straight/arc orientation plus
 `base_yaw_degrees`. Set the margin to **0** to restore fixed-yaw repairs.
+For strictly straight back-and-forth base movement, add an **Item / Boolean**
+input named `straight_line_motion` and connect a Boolean Toggle. Default **False**
+preserves the existing planner. **True** post-processes the geometric base proposal
+onto one central straight line, retaining every base's longitudinal coordinate,
+the full longitudinal extent, target order and reversals, and uses one constant
+heading. `normal_offset` controls the line's sideways placement;
+`tangent_offset` shifts the initial positions along it. `base_yaw_degrees` sets a
+constant rotation relative to the line normal; it does not rotate the travel line.
+The toggle overrides arc geometry and adaptive yaw (effective yaw margin zero).
+The straight candidate keeps every longitudinal coordinate fixed; it does not
+run local offset repairs that could shorten the path. All original targets,
+configuration collisions and movement limits are still validated. If the straight
+candidate fails, the normal planner runs with the original settings. The result
+reports `straight_line_motion_requested=True`, `straight_line_fallback=True` and
+the rejected candidate's diagnostics in `straight_line_attempt`; `straight_line_motion`
+reports whether the returned path is straight. A fallback is only marked valid
+if it passes the usual full validation. The line fit
+is not bounded by `max_xy_deviation`; that bound applies to the preceding smoothing
+step. Preserved longitudinal extent does not guarantee arm reach on curved paths.
+Offline replay accepts `--straight-line-motion`.
+On capture `20261004_215354_587eccf7` with the component defaults and 24 TCP
+rotations, the projected span remains 2.20347 m with constant heading. Placement
+and IK checks reject the straight candidate, and fallback validates all 2,721
+targets (714.98 s overall). Preserving the span alone cannot guarantee reach.
+
 Already-valid paths keep their nominal yaw. With `adapt_offsets=False`, neither
 offsets nor yaw adapt. The margin accepts values from 0 to 180 degrees and is
 independent of model units and the per-transition `max_yaw_step` limit.
