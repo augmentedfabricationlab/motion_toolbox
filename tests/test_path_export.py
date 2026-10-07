@@ -113,6 +113,32 @@ def test_actual_gh_component_export_preview_and_failure(tmp_path,capsys):
     assert failed['status'] in printed and 'Saved to:' not in printed
 
 
+@pytest.mark.parametrize('sanity_checks', [False, 'False', ' false '])
+def test_gh_stationary_base_export_with_checks_disabled(tmp_path, sanity_checks):
+    script=Path(__file__).resolve().parents[1]/'examples/grasshopper_export_paths.py'
+    tcp,base=paths()
+    output=runpy.run_path(str(script),init_globals=dict(
+        tcp_planes=tcp,base_planes=[base[0]]*len(tcp),speed=4.,
+        documents_folder=str(tmp_path),sanity_checks=sanity_checks))
+    assert output['status'].startswith('Exported 3'),output['status']
+    arm=json.loads(Path(output['tcp_file']).read_text())
+    stationary=json.loads(Path(output['base_file']).read_text())
+    assert [p['stamp'] for p in arm['poses']]==[p['stamp'] for p in stationary['poses']]
+    assert all(p['position']==dict(x=0.,y=0.,z=0.) for p in stationary['poses'])
+    assert output['duration_seconds']==22.5
+
+
+def test_gh_text_preview_flag_and_invalid_boolean(tmp_path):
+    script=Path(__file__).resolve().parents[1]/'examples/grasshopper_export_paths.py'
+    tcp,base=paths()
+    inputs=dict(tcp_planes=tcp,base_planes=base,speed=4.,documents_folder=str(tmp_path))
+    preview=runpy.run_path(str(script),init_globals=dict(inputs,write_files='False'))
+    assert preview['status'].startswith('Previewed 3'),preview['status']
+    invalid=runpy.run_path(str(script),init_globals=dict(inputs,sanity_checks='off'))
+    assert 'sanity_checks must be True or False' in invalid['status']
+    assert not list(tmp_path.iterdir())
+
+
 @pytest.mark.parametrize('loader', ['no_file', 'explicit_source', 'gh_generated_file'])
 def test_gh_text_execution_without_package_context(tmp_path,loader):
     root=Path(__file__).resolve().parents[1]

@@ -17,7 +17,8 @@ Optional:
   model_units_to_metres  Item, float: 1 for metre inputs, 0.001 for millimetres
   frame_id               Item, str: vicon_world
   sanity_checks          Item, bool: True; require at least one TCP above 1 m and
-                         base XY bounding-box diagonal >=0.9 m; False allows small paths
+                         base XY bounding-box diagonal >=0.9 m; False allows small
+                         or stationary paths (Boolean Toggle or text True/False)
   documents_folder       Item, str: parent destination; default Windows Documents
   toolbox_src            Item, str: path to repository src directory, not a file;
                          default adjacent src when file-loaded, or installed package
@@ -56,10 +57,20 @@ def _input(name, default=None):
     return default if value is None else value
 
 
+def _bool_input(name, default):
+    value = _input(name, default)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ('true', 'false'):
+            return text == 'true'
+        raise ValueError('{} must be True or False; use an Item/bool input'.format(name))
+    return bool(value)
+
+
 tcp_file, base_file, export_folder = None, None, None
 time_seconds, diagnostics = [], []
 duration_seconds, result = None, None
-status, version = '', '0.1.45'
+status, version = '', '0.1.58'
 try:
     source = _input('toolbox_src')
     script_file = globals().get('__file__')
@@ -74,6 +85,7 @@ try:
     importlib.invalidate_caches()
     import motion_toolbox
     importlib.reload(motion_toolbox)
+    version = motion_toolbox.__version__
     import motion_toolbox.recording as recording
     if recording.current_run() is None and getattr(recording,'RECORDING_VERSION',0)<8:
         importlib.reload(recording)
@@ -81,7 +93,7 @@ try:
     importlib.reload(module)
     speed_value = _input('speed')
     if speed_value is None: raise ValueError('Provide speed in cm/s')
-    write = bool(_input('write_files', True))
+    write = _bool_input('write_files', True)
     folder = _input('documents_folder')
     if write and folder is None:
         import System
@@ -90,7 +102,7 @@ try:
     result = module.export_robot_paths(list(_input('tcp_planes', [])), list(_input('base_planes', [])),
         speed_value, documents_folder=folder, write_files=write,
         model_units_to_metres=float(_input('model_units_to_metres', 1.)),
-        frame_id=_input('frame_id', 'vicon_world'), sanity_checks=bool(_input('sanity_checks', True)))
+        frame_id=_input('frame_id', 'vicon_world'), sanity_checks=_bool_input('sanity_checks', True))
     tcp_file, base_file, export_folder = (result[k] for k in ('tcp_file','base_file','export_folder'))
     time_seconds = [t['sec']+t['nanosec']/1e9 for t in result['timestamps']]
     duration_seconds, diagnostics = result['duration_seconds'], result['diagnostics']

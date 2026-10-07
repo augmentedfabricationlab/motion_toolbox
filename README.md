@@ -260,7 +260,11 @@ set `write_files=False` for a timing preview. Optional `documents_folder`,
 `frame_id`, and `model_units_to_metres` (default 1) override location/frame/units.
 The supplied exporter's checks are preserved: TCP maximum height must exceed
 1 m, and base XY bounding-box extent must be at least 0.9 m. Set
-`sanity_checks=False` for intentionally smaller paths. Rotation-only/repeated TCP
+`sanity_checks=False` for intentionally smaller or stationary paths, using an
+Item/bool input and a Boolean Toggle (text `True`/`False` is also accepted).
+The extent measures travel between base origins, not the base footprint size.
+For a stationary base, repeat its plane to match the TCP list length and keep
+both plane inputs on List access. Rotation-only/repeated TCP
 origins receive no extra duration; diagnostics report repeated timestamps.
 Exporting does not revalidate IK, collisions or speed/acceleration limits.
 

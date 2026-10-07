@@ -4,6 +4,17 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.58 - 2026-10-07
+
+- Parse text `True`/`False` explicitly for the Grasshopper export component's
+  `sanity_checks` and `write_files` inputs. Text `False` now disables checks or
+  selects preview as intended; other text values produce an actionable error.
+- Explain that the base extent check measures origin travel, and document
+  stationary exports with repeated base planes and List access. Report the
+  loaded package version even when export fails. No dependency changes.
+- Validation: all 31 path-export tests pass, including stationary JSON exports
+  with Boolean/text False and shared arm/base timestamps. Live Rhino was not tested.
+
 ## 0.1.57 - 2026-10-05
 
 - Keep the mobile Grasshopper UR planner within one shoulder/elbow/wrist

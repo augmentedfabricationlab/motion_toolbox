@@ -82,7 +82,10 @@ def build_path_export(tcp_planes, base_planes, speed, *, model_units_to_metres=1
     if sanity_checks and heights.max() <= 1.:
         raise ValueError('Export blocked: no TCP plane is above 1.0 m; check geometry and metre units')
     if sanity_checks and extent < .9:
-        raise ValueError('Export blocked: base XY extent is {:.6f} m; expected at least 0.9 m'.format(extent))
+        raise ValueError('Export blocked: base XY extent is {:.6f} m; expected at least 0.9 m. '
+                         'This measures travel between base origins, not the base footprint. '
+                         'For stationary or intentionally short paths, set sanity_checks=False. '
+                         'Use List access for both plane inputs.'.format(extent))
     diagnostics = []
     if heights.min() < 0 or heights.max() > 2.5:
         diagnostics.append('TCP heights extend outside 0-2.5 m: {:.6f} to {:.6f} m'.format(heights.min(),heights.max()))
