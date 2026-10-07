@@ -4,6 +4,23 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.59 - 2026-10-07
+
+- Add `grasshopper_import_result.py` and `load_stationary_result` for offline
+  stationary benchmark JSON (adaptive or heuristic). Restore footprint planes,
+  selected TCP rotations, arm DataTrees and named configurations with captured
+  fixed joints, without rerunning planning. Support moved captures and model-unit
+  conversion; configuration values remain metres/radians. No dependency changes.
+- Check capture/URDF hashes and trajectory consistency. Failed runs emit no path;
+  errors clear component outputs. Report saved verification separately from the
+  current scene; import adds no collision or swept-transition checks.
+- Update component version labels and the arm component's cached-version guard.
+- Validation: 23 importer tests pass; 86 existing Grasshopper/path-export checks
+  pass across the regression run and the affected-check rerun. Import of the
+  3,390-target capture `20261007_180324_ee9ad64f` preserves every arm and fixed-joint
+  value and passes the millimetre-output/path-export roundtrip. Grasshopper
+  boundaries were tested with Python stubs; live Rhino was not tested.
+
 ## 0.1.58 - 2026-10-07
 
 - Parse text `True`/`False` explicitly for the Grasshopper export component's

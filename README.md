@@ -785,6 +785,41 @@ snapshot of 104 original Python files. Original repositories may already contain
 uncommitted work; this migration neither cleans nor commits it.
 
 
+## Import an offline stationary run in Grasshopper
+
+Load [examples/grasshopper_import_result.py](examples/grasshopper_import_result.py)
+into a Rhino 8 **Python 3** component. It reads the `result.json` produced by the
+stationary benchmark (adaptive or heuristic) without rerunning the planner.
+Install the toolbox with its COMPAS extra as for the planning components.
+
+| Input | Access / type | Value |
+| --- | --- | --- |
+| `result_path` | Item / str | Full path to the run's `result.json` |
+| `case_folder` | Item / str, optional | Exported capture folder if it has moved; otherwise the saved case path is used |
+| `units_to_metres` | Item / float, optional | `1` for metre output planes (default), `0.001` for millimetres |
+| `toolbox_src` | Item / str, optional | Your checkout's `src` directory |
+
+Mark optional inputs **Optional**, or omit them. Add outputs named `base_plane`,
+`base_planes`, `planned_tcp`, `joint_plan`, `configurations`, `path_cost`,
+`path_complete`, `valid`, `verification`, `diagnostics`, `status`, and `result`.
+`version` reports the loaded package. No output type hints are needed.
+
+`planned_tcp` preserves each saved TCP-Z rotation. `base_planes` repeats the
+stationary footprint once per target. `joint_plan` has one six-angle branch per
+target; named COMPAS `configurations` also contain the captured fixed joints,
+including lift. Configuration values always remain metres/radians. Connect
+`planned_tcp` and `base_planes` to the path export component's List inputs; set
+`sanity_checks=False` for a stationary base and use the same unit scale there.
+
+Keep the referenced capture's `case.json`, `manifest.json`, and `robot/robot.urdf`
+available. The importer checks the saved case hash and the manifest's URDF hash,
+and rejects inconsistent target/configuration counts or nonfinite trajectory data.
+It does not execute captured source or load robot meshes. Failed runs return no
+trajectory. `valid` reports the saved waypoint collision, joint-limit, joint-step,
+and FK verification; missing checks are not treated as passed. Import does not
+validate your current Rhino scene or add swept transition checks. Mobile replay
+and arbitrary workflow JSON formats are not supported by this component.
+
 ## Research recording
 
 The `grasshopper_arm.py` and `grasshopper_mobile_base.py` components expose
