@@ -247,3 +247,15 @@ def test_existing_recording_is_reused(tmp_path):
         result = workflow.plan_stationary_base(**args)
         assert Path(result['research_run']) == run.path
     assert len(list(tmp_path.iterdir())) == 1
+
+
+@pytest.mark.parametrize('options', [dict(rotation_angle_deg=0), dict(angle_cw_deg=-1),
+    dict(angle_ccw_deg=float('inf')), dict(rotation_mode='unknown')])
+def test_invalid_rotation_range_rejected_before_scene_queries(options):
+    args,_,names=inputs()
+    scene=Scene(names)
+    args.update(rotation_mode='step_angle')
+    args.update(options)
+    with pytest.raises(ValueError):
+        workflow.plan_stationary_base(**args,scene=scene)
+    assert scene.calls==[]

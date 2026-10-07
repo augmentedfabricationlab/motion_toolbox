@@ -50,6 +50,14 @@ Arm validation and path:
                   search cannot prove a global optimum. fast_validation=False or
                   count_paths=True restores the existing exhaustive heuristic.
   rotation_steps   Item, int (24): TCP-Z orientation samples (1 fixes orientation)
+  rotation_mode: Item, text ('n_steps'): 'n_steps', 'step_angle', or 'off'.
+  rotation_angle_deg: Item, float (5): sample spacing for 'step_angle'.
+  angle_ccw_deg / angle_cw_deg: Item, float (0): nonnegative rotation bounds.
+    Offsets run from -angle_ccw_deg toward +angle_cw_deg in rotation_angle_deg
+    increments; the upper bound is included only when a step lands on it.
+    Relative to EACH input target plane about its local Z, not current_pose.
+    Example: 'step_angle', 5, 20, 20 gives -20, -15, ..., 0, ..., +20 degrees.
+    rotation_steps only controls 'n_steps'; 'off' keeps the input orientations.
   max_joint_step   Item, float (2.5): radians per arm joint per target step
   build_path       Item, bool (True): build a joint path; adaptive mode compares finalists
   count_paths      Item, bool (False): also count every possible joint path (slower)
@@ -310,6 +318,8 @@ try:
         search_strategy=_input('search_strategy', 'heuristic'), search_options=_input('search_options'),
         grid_spacing=_input('grid_spacing'), base_height=_input('base_height', 0.),
         yaw_steps=_input('yaw_steps', 4), rotation_steps=_input('rotation_steps', 24),
+        rotation_mode=_input('rotation_mode', 'n_steps'), rotation_angle_deg=_input('rotation_angle_deg', 5),
+        angle_cw_deg=_input('angle_cw_deg', 0), angle_ccw_deg=_input('angle_ccw_deg', 0),
         max_validation_attempts=_input('max_validation_attempts', 3),
         max_joint_step=_input('max_joint_step', 2.5), joint_ranges=_input('joint_ranges'),
         build_path=_input('build_path', True), count_paths=_input('count_paths', False),

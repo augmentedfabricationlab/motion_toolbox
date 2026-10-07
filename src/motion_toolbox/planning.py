@@ -16,7 +16,7 @@ def rotation_offsets(mode=False, step=5, steps=35, cw=0, ccw=0):
     if mode == 'n_steps':
         if int(steps) != steps or steps < 1:
             raise ValueError('rotation_steps must be a positive integer')
-        return [2*math.pi*i/steps for i in range(steps)]
+        return [2*math.pi*i/steps for i in range(int(steps))]
     if mode == 'step_angle':
         if not all(math.isfinite(v) for v in [step, cw, ccw]) or step <= 0 or cw < 0 or ccw < 0:
             raise ValueError('Positive finite step and nonnegative rotation bounds required')

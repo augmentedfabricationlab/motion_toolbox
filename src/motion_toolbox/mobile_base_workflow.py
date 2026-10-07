@@ -81,7 +81,9 @@ def generate_base_path(targets, *, max_xy_deviation=.25, normal_offset=1.0, tang
 
 @recorded
 def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
-                       current_pose=None, rotation_steps=16, max_joint_step=2.5, max_base_step=.25,
+                       current_pose=None, rotation_steps=16, rotation_mode='n_steps',
+                       rotation_angle_deg=5, angle_cw_deg=0, angle_ccw_deg=0,
+                       max_joint_step=2.5, max_base_step=.25,
                        max_yaw_step=.25, max_reach_xy=1.75, collision_options=None,
                        time_intervals=None, max_base_speed=None, max_yaw_speed=None,
                        max_joint_speed=None, cancel_check=None, progress=None, _cache=None,
@@ -95,7 +97,9 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
     branch, including the starting pose. Ambiguous branch boundaries are rejected.
     """
     started=perf_counter()
-    offsets=rotation_offsets("n_steps",steps=rotation_steps)
+    rotation_options=dict(rotation_steps=rotation_steps, rotation_mode=rotation_mode, rotation_angle_deg=rotation_angle_deg,
+            angle_cw_deg=angle_cw_deg, angle_ccw_deg=angle_ccw_deg)
+    offsets=rotation_offsets(rotation_mode, rotation_angle_deg, rotation_steps, angle_cw_deg, angle_ccw_deg)
     targets,bases=[as_plane(t) for t in targets],[as_plane(b) for b in bases]
     if not targets or len(targets)!=len(bases):
         raise ValueError('Require exactly one base plane per target')
@@ -142,12 +146,12 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
                   collision_seconds=0., graph_seconds=0.)
     ik_hits = collision_hits = collision_checks = 0
     def pose_key(target, base):
-        return target.matrix.tobytes(), base.matrix.tobytes()
+        return target.matrix.tobytes(), base.matrix.tobytes(), tuple(offsets)
     def joint_key(q):
         return tuple(np.round(q, 12))
     event('mobile.validation_policy', collision_order='after_graph', check_edges=False,
           failed_layer_policy='complete_exact_checks' if _complete_collision_layers else 'selected_nodes_only',
-          rotation_steps=int(rotation_steps), targets=len(targets),
+          **rotation_options, targets=len(targets),
           selection='full-case comparison 20260921: before_graph 100.186 s; after_graph 9.521 s; identical cost')
     for i,(target,base) in enumerate(zip(targets,bases)):
         check()
@@ -187,7 +191,7 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
                 angles = [angles_by_q[joint_key(q)] for q in rows]
                 detail['state'] = 'configuration_untested' if rows else ('no_ik' if not raw_stats['raw_ik'] else 'joint_limit_rejection')
             ik_cache[key] = rows, angles, dict(detail)
-        detail.update(rotation_steps=int(rotation_steps), collision_free=None,
+        detail.update(**rotation_options, rotation_candidate_count=len(offsets), collision_free=None,
                       collision_checks=0, collision_rejections=0, rejection_reasons={})
         layers.append(rows);layer_angles.append(angles);diagnostics.append(detail)
         if progress is not None and ((i+1)%100==0 or i+1==len(targets)):
@@ -324,7 +328,8 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
           unreachable_targets=unreachable,disconnected=disconnected_detail)
     return dict(base_planes=bases,configurations=configurations,fabrication_validated=valid,
         optimality_certified=valid,collision_order='after_graph',graph_stats=graph_stats,
-        ik_cache_hits=ik_hits,collision_cache_hits=collision_hits,rotation_steps=int(rotation_steps),
+        ik_cache_hits=ik_hits,collision_cache_hits=collision_hits,**rotation_options,
+        rotation_candidate_count=len(offsets),
         selected_tcp_rotations=selected_angles,selected_target_planes=selected_targets,
         status=status,target_diagnostics=diagnostics,state_counts=counts,unreachable_points=unreachable,
         unchecked_points=unchecked,transition_failures=transitions,disconnected_target=failure_layer,
@@ -407,7 +412,8 @@ def plan_base_path(targets, *, solver, world, joint_ranges, periodic, adapt_offs
             return True
         def probe(indices,bases):
             options = {k:v for k,v in limits.items() if k in
-                       ('rotation_steps','max_reach_xy','collision_options','cancel_check')}
+                       ('rotation_steps','rotation_mode','rotation_angle_deg','angle_cw_deg','angle_ccw_deg',
+                        'max_reach_xy','collision_options','cancel_check')}
             # Anchor tests are individual placement checks, not transitions over
             # skipped TCPs. Full original-index connectivity is checked afterward.
             if not placement_probe(indices,bases):
@@ -548,7 +554,8 @@ def plan_mobile_base(robot, target_planes, *, units_to_metres=1., max_xy_deviati
         straight_line_motion=proposal['straight_line_motion'],
         straight_line_motion_requested=proposal['straight_line_motion_requested'],
         straight_line_fallback=proposal['straight_line_fallback'],
-        rotation_steps=proposal['rotation_steps'],solver=type(solver).__name__,
+        **{k:proposal[k] for k in ('rotation_steps','rotation_mode','rotation_angle_deg','angle_cw_deg','angle_ccw_deg','rotation_candidate_count')},
+        solver=type(solver).__name__,
         mounting_source=solver.mounting_source,arm_in_base=solver.arm_in_base.to_dict(),
         tcp_in_flange=solver.tool.to_dict(),ur_parameters=list(solver.parameters),
         fixed_joint_values=fixed,first_target=targets[0].to_dict(),

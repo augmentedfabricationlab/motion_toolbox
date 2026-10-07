@@ -58,6 +58,25 @@ research-recording serialization and Grasshopper output conversion add overhead.
 The arm, stationary-base and mobile-base components default to `rotation_steps=24`,
 sampling a full turn per target. Use `1` when target
 orientations must remain fixed; this reduces the search and can change feasibility.
+
+The stationary-base and mobile-base components also accept these optional Item
+inputs (update both the installed package and the component script):
+
+| Input | Default | Meaning |
+| --- | --- | --- |
+| `rotation_mode` | `n_steps` | Full-circle `n_steps`, bounded `step_angle`, or fixed `off` |
+| `rotation_angle_deg` | `5` | Positive angular sample spacing for `step_angle` |
+| `angle_ccw_deg` | `0` | Nonnegative negative-side bound in degrees |
+| `angle_cw_deg` | `0` | Nonnegative positive-side bound in degrees |
+
+For +/-20 degrees, set `rotation_mode="step_angle"`, `rotation_angle_deg=5`,
+`angle_ccw_deg=20`, and `angle_cw_deg=20`. Samples run from -20 to +20 inclusive.
+Offsets are relative to each input target plane about its local Z axis, not the
+initial robot configuration. The positive endpoint is included only if the step
+lands on it; zero is likewise present only if the sampling grid includes it.
+`rotation_steps` applies only to `n_steps`. Stationary adaptive probes, final
+validation, mobile repair probes and straight-line fallbacks use the same bounds.
+
 The plane-only component also accepts an empty starting pose, but still requires
 explicit controller-base and TCP frames because it has no robot model.
 It returns both a six-arm-joint DataTree and named COMPAS configurations containing

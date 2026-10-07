@@ -122,7 +122,9 @@ class _Evaluation:
 @high_qos
 def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
         collision=None, base_collision=None, candidate_planes=(), current_pose=None,
-        joint_ranges=None, periodic=None, rotation_steps=24, max_joint_step=2.5,
+        joint_ranges=None, periodic=None, rotation_steps=24, rotation_mode='n_steps',
+        rotation_angle_deg=5, angle_cw_deg=0, angle_ccw_deg=0,
+        max_joint_step=2.5,
         step_limits=None, build_path=True, base_height=0., grid_size=5, yaw_steps=8,
         probe_count=16, probe_rotations=8, beam_width=4, refinement_steps=(.16,.08),
         validation_probe_count=64, connected_finalists=1,
@@ -135,6 +137,9 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
     robustness/clearance only ranks search proposals, never validates safety.
     No all-target solution counts are inferred from sparse probes.
     """
+    rotation_options=dict(rotation_steps=rotation_steps, rotation_mode=rotation_mode, rotation_angle_deg=rotation_angle_deg,
+            angle_cw_deg=angle_cw_deg, angle_ccw_deg=angle_ccw_deg)
+    offsets=rotation_offsets(rotation_mode, rotation_angle_deg, rotation_steps, angle_cw_deg, angle_ccw_deg)
     started=perf_counter()
     targets=[as_plane(t) for t in targets]
     if not targets:raise ValueError('At least one target required')
@@ -142,12 +147,12 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
             ('probe_rotations',probe_rotations,1),('beam_width',beam_width,1),
             ('validation_probe_count',validation_probe_count,1),
             ('connected_finalists',connected_finalists,1),
-            ('max_full_checks',max_full_checks,1),('rotation_steps',rotation_steps,1)]:
+            ('max_full_checks',max_full_checks,1)]:
         if int(value)!=value or value<minimum:raise ValueError(name+' must be a positive integer')
     (grid_size,yaw_steps,probe_count,probe_rotations,beam_width,max_full_checks,
-     rotation_steps,validation_probe_count,connected_finalists)=map(int,(
+     validation_probe_count,connected_finalists)=map(int,(
         grid_size,yaw_steps,probe_count,probe_rotations,beam_width,max_full_checks,
-        rotation_steps,validation_probe_count,connected_finalists))
+        validation_probe_count,connected_finalists))
     if any(not math.isfinite(v) or v<=0 for v in (initial_reach,exploration_reach,*refinement_steps)):
         raise ValueError('Reach and refinement distances must be positive finite metres')
     if exploration_reach<initial_reach or any(not math.isfinite(v) or v<0 for v in (tool_clearance,clearance_weight,heading_bias)):
@@ -162,9 +167,8 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
     # Low TCPs are close to chassis/lift geometry in wall tasks. Ordering changes
     # only discovery latency; every accepted finalist still checks every target.
     validation_probes.sort(key=lambda i:targets[i].origin[2])
-    offsets=rotation_offsets('n_steps',steps=rotation_steps)
-    sample_offsets=[offsets[i] for i in sorted({int(i*rotation_steps/min(probe_rotations,rotation_steps))
-                                               for i in range(min(probe_rotations,rotation_steps))})]
+    sample_offsets=[offsets[i] for i in sorted({int(i*len(offsets)/min(probe_rotations,len(offsets)))
+                                               for i in range(min(probe_rotations,len(offsets)))})]
     evaluation=_Evaluation(ik_solver,collision,cancel_check)
     records={}
     body_checks=0
@@ -335,7 +339,7 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
             if index not in critical_targets:critical_targets.append(index)
             failure=_validate_stationary_fast(targets,base,current_pose,evaluation,
                 evaluation.valid if collision is not None else None,region.metrics(base),False,
-                dict(rotation_mode='n_steps',rotation_steps=rotation_steps,joint_ranges=joint_ranges,
+                dict(**rotation_options,joint_ranges=joint_ranges,
                      _priority_targets=[index],cancel_check=cancel_check))
             failures.append(failure)
             return False
@@ -346,7 +350,7 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
         if not bottleneck(row):row['bottleneck_rejected']=True;continue
         if not screen_finalist(row):row['reachability_screen_rejected']=True;continue
         attempts+=1;report('adaptive_full_validation',attempt=attempts,score=row['score'])
-        options=dict(rotation_mode='n_steps',rotation_steps=rotation_steps,joint_ranges=joint_ranges,
+        options=dict(**rotation_options,joint_ranges=joint_ranges,
             periodic=periodic,max_joint_step=max_joint_step,step_limits=step_limits,count_paths=False,
             _max_lazy_passes=2,
             cancel_check=cancel_check,progress=progress,_priority_targets=list(dict.fromkeys(

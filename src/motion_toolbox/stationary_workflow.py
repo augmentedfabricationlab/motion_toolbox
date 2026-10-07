@@ -83,7 +83,9 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
                          current_pose=None, arm_in_base=None, arm_joint_names=None,
                          fixed_joint_values=None, group=None, parameters=None,
                          grid_spacing=None, base_height=0., yaw_steps=4,
-                         rotation_steps=16, max_validation_attempts=3, max_joint_step=2.5,
+                         rotation_steps=16, rotation_mode='n_steps',
+                         rotation_angle_deg=5, angle_cw_deg=0, angle_ccw_deg=0,
+                         max_validation_attempts=3, max_joint_step=2.5,
                          joint_ranges=None, build_path=True, count_paths=False, fast_validation=True,
                          collision_check=True, collision_meshes=(), collision_options=None, scene=None,
                          time_intervals=None, max_joint_speed=None, cancel_check=None, progress=None,
@@ -96,6 +98,10 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
     trajectory is returned. valid means a complete configuration-collision-checked
     path, not swept/transition validation. Recording honors TOOLBOX_RECORDING.
     """
+    from .planning import rotation_offsets
+    rotation_options = dict(rotation_steps=rotation_steps, rotation_mode=rotation_mode, rotation_angle_deg=rotation_angle_deg,
+            angle_cw_deg=angle_cw_deg, angle_ccw_deg=angle_ccw_deg)
+    rotation_offsets(rotation_mode, rotation_angle_deg, rotation_steps, angle_cw_deg, angle_ccw_deg)
     started = perf_counter()
     run = current_run()
     def report(stage, **data):
@@ -237,7 +243,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
             arm_joint_names=names, fixed_joint_values=fixed, joint_ranges=ranges,
             mounting_source=solver.mounting_source, arm_in_base=solver.arm_in_base.to_dict(),
             tcp_in_flange=solver.tool.to_dict(), ur_parameters=list(solver.parameters),
-            current_pose=start, rotation_steps=rotation_steps, max_joint_step=step.tolist(),
+            current_pose=start, **rotation_options, max_joint_step=step.tolist(),
             max_joint_speed=None if speed is None else speed.tolist(),
             time_intervals=None if times is None else times.tolist(),
             step_limits=None if step_limits is None else step_limits.tolist(),
@@ -258,7 +264,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
             search_result = find_adaptive_stationary_base(targets, ik_solver=solver,
                 arm_in_base=solver.arm_in_base, candidate_planes=bases if supplied else (),
                 current_pose=start, joint_ranges=ranges, periodic=[joints[n].type == 1 for n in names],
-                rotation_steps=rotation_steps, max_joint_step=step, step_limits=step_limits,
+                **rotation_options, max_joint_step=step, step_limits=step_limits,
                 build_path=build_path, base_height=base_height*units_to_metres,
                 collision=partial(world.is_valid, clearance=clearance) if world else None,
                 base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
@@ -273,7 +279,7 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
                 base_collision=partial(world.is_base_valid, clearance=clearance) if world else None,
                 collision=partial(world.is_valid, clearance=clearance) if world else None,
                 max_validation_attempts=max_validation_attempts, count_paths=count_paths,
-                fast_validation=fast_validation, rotation_mode='n_steps', rotation_steps=rotation_steps,
+                fast_validation=fast_validation, **rotation_options,
                 joint_ranges=ranges, periodic=[joints[n].type == 1 for n in names],
                 max_joint_step=step, step_limits=step_limits, cancel_check=cancel_check,
                 progress=lambda message: report(**message))

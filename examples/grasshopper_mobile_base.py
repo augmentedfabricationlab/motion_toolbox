@@ -29,6 +29,14 @@ Optional inputs:
     boxes (require that robot profile), or detailed (previous base geometry).
   collision_scene: optional fully configured external scene.
   rotation_steps: default 24 equally spaced orientations about local TCP Z.
+  rotation_mode: Item, text ('n_steps'): 'n_steps', 'step_angle', or 'off'.
+  rotation_angle_deg: Item, float (5): sample spacing for 'step_angle'.
+  angle_ccw_deg / angle_cw_deg: Item, float (0): nonnegative rotation bounds.
+    Offsets run from -angle_ccw_deg toward +angle_cw_deg in rotation_angle_deg
+    increments; the upper bound is included only when a step lands on it.
+    Relative to EACH input target plane about its local Z, not current_pose.
+    Example: 'step_angle', 5, 20, 20 gives -20, -15, ..., 0, ..., +20 degrees.
+    rotation_steps only controls 'n_steps'; 'off' keeps the input orientations.
   max_joint_step: default 2.5 rad; max_base_step: default 0.25 m in model units;
   max_yaw_step: default 0.25 rad.
   time_intervals: optional seconds, N-1 transitions (N with current_pose).
@@ -73,7 +81,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.60'
+version='0.1.61'
 planned_tcp=[]
 started=time.monotonic()
 
@@ -119,7 +127,10 @@ try:
         arm_joint_names=_input('arm_joint_names'),fixed_joint_values=_input('fixed_joint_values'),
         joint_ranges=_input('joint_ranges'),group=_input('group'),parameters=_input('ur_parameters'),
         collision_meshes=list(_input('collision_meshes',[])),collision_options=_input('collision_options'),
-        scene=_input('collision_scene'),rotation_steps=_input('rotation_steps',24),max_joint_step=_input('max_joint_step',2.5),
+        scene=_input('collision_scene'),rotation_steps=_input('rotation_steps',24),
+        rotation_mode=_input('rotation_mode', 'n_steps'), rotation_angle_deg=_input('rotation_angle_deg', 5),
+        angle_cw_deg=_input('angle_cw_deg', 0), angle_ccw_deg=_input('angle_ccw_deg', 0),
+        max_joint_step=_input('max_joint_step',2.5),
         max_base_step=float(_input('max_base_step',.25/scale))*scale,max_yaw_step=_input('max_yaw_step',.25),
         time_intervals=json_input(_input('time_intervals')),
         max_base_speed=None if _input('max_base_speed') is None else float(_input('max_base_speed'))*scale,

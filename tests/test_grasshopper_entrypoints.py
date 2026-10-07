@@ -656,3 +656,22 @@ def test_stationary_adaptive_search_outputs_and_exhaustive_fallback(gh, exact_fl
         assert out['result']['effective_settings']['search_strategy']=='heuristic'
     failed=runpy.run_path(script,init_globals=dict(out,robot=None))
     assert failed['search_summary'] is None and failed['search_diagnostics']==[]
+
+
+@pytest.mark.parametrize('settings', [dict(fast_validation=True), dict(fast_validation=False),
+    dict(count_paths=True), dict(search_strategy='adaptive')])
+def test_stationary_component_bounded_rotation(gh, monkeypatch, settings):
+    robot, q, targets, _ = robot_fixture()
+    expected = targets[0]
+    monkeypatch.setattr('motion_toolbox.geometry.to_rhino', lambda p, scale=1: p)
+    inputs = dict(robot=robot, target_planes=[expected.rotated_z(-np.deg2rad(20))],
+        current_pose=q, candidate_planes=[Plane.world_xy()], arm_in_base=Plane.world_xy(),
+        rotation_mode='step_angle', rotation_angle_deg=5, angle_ccw_deg=20, angle_cw_deg=20,
+        rotation_steps=1, max_joint_step=.01, collision_check=False, **settings)
+    script = str(EXAMPLES/'grasshopper_stationary_base.py')
+    result = runpy.run_path(script, init_globals=inputs)
+    assert len(result['planned_tcp']) == 1, result['status']
+    np.testing.assert_allclose(result['planned_tcp'][0].xaxis, expected.xaxis, atol=1e-8)
+    # The only orientation connected to the start is now outside the allowed range.
+    failed = runpy.run_path(script, init_globals=dict(inputs, angle_cw_deg=15))
+    assert failed['planned_tcp'] == [], failed['status']

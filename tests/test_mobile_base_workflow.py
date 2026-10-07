@@ -211,6 +211,7 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     monkeypatch.setattr(solver_module,'inverse_kinematics',stale)
     out=runpy.run_path(str(path),init_globals=dict(robot=robot,target_planes=targets,
         arm_joint_names=names,max_xy_deviation=.02,base_yaw_degrees=15.,adapt_offsets=False,
+        rotation_mode='step_angle',rotation_angle_deg=5,angle_ccw_deg=20,angle_cw_deg=20,
         **({'straight_line_motion': True} if straight else {})))
     assert len(out['base_planes'])==3,out['status']
     assert out['target_indices']==[0,1,2]
@@ -224,9 +225,71 @@ def test_actual_component_returns_proposal_on_real_robot_ik_failure(gh,monkeypat
     settings=json.loads(out['diagnostics'][0])
     assert settings['units_to_metres']==1
     assert settings['rotation_steps']==24
+    assert settings['rotation_mode']=='step_angle'
+    assert settings['rotation_angle_deg']==5
+    assert settings['angle_ccw_deg']==settings['angle_cw_deg']==20
+    assert settings['rotation_candidate_count']==9
     assert settings['base_yaw_degrees']==15.
     assert settings['straight_line_motion_requested'] is straight
     assert settings['straight_line_fallback'] is straight
     assert settings['straight_line_motion'] is False
     assert settings['effective_base_yaw_margin_degrees']==30.
     assert settings['first_target']['origin'][2]==10
+
+
+@pytest.mark.parametrize('cw,expected', [(20,True),(15,False)])
+def test_mobile_bounded_rotation(cw,expected):
+    seen=[]
+    class Limited(Solver):
+        def __call__(self,target,base):
+            angle=np.rad2deg(np.arctan2(target.xaxis[0],target.xaxis[2]))
+            seen.append(angle)
+            return super().__call__(target,base) if abs(angle-20)<1e-8 else []
+    result=validate(solver=Limited(),rotation_mode='step_angle',rotation_angle_deg=5,
+        angle_ccw_deg=20,angle_cw_deg=cw,rotation_steps=1)
+    assert result['fabrication_validated'] is expected
+    assert min(seen)>=-20-1e-8 and max(seen)<=cw+1e-8
+    if expected: np.testing.assert_allclose(result['selected_tcp_rotations'],np.deg2rad(20))
+
+
+def test_mobile_repair_probes_keep_rotation_bounds(monkeypatch):
+    from motion_toolbox import mobile_base_workflow as workflow, mobile_adaptation
+    seen=[]
+    class Limited(Solver):
+        def __call__(self,target,base):
+            angle=np.rad2deg(np.arctan2(target.xaxis[0],target.xaxis[2]))
+            seen.append(angle)
+            return []
+    probed=[]
+    def repair(targets,bases,result,*,probe,**kwargs):
+        probed.append(probe([0],[bases[0]]))
+        return result,np.zeros((len(targets),2)),[]
+    monkeypatch.setattr(mobile_adaptation,'repair_offsets',repair)
+    result=workflow.plan_base_path(fixture()[0],solver=Limited(),world=World(),
+        joint_ranges=[[-3,3]]*6,periodic=[False]*6,rotation_mode='step_angle',
+        rotation_angle_deg=5,angle_ccw_deg=10,angle_cw_deg=20)
+    assert probed==[False] and not result['fabrication_validated']
+    assert seen and min(seen)>=-10-1e-8 and max(seen)<=20+1e-8
+
+
+@pytest.mark.parametrize('options', [dict(rotation_angle_deg=0), dict(angle_cw_deg=-1),
+    dict(angle_ccw_deg=float('nan')), dict(rotation_mode='unknown')])
+def test_mobile_invalid_rotation_settings(options):
+    with pytest.raises(ValueError):
+        validate(**dict(dict(rotation_mode='step_angle'),**options))
+
+
+def test_mobile_rotation_range_cache_and_collision_filtering():
+    class RotatedOnly(Solver):
+        def __call__(self,target,base):
+            return super().__call__(target,base) if target.xaxis[0]>.999 else []
+    cache={}
+    assert validate(solver=RotatedOnly(),rotation_steps=4,_cache=cache)['fabrication_validated']
+    bounded=validate(solver=RotatedOnly(),rotation_mode='step_angle',rotation_angle_deg=5,
+        angle_ccw_deg=20,angle_cw_deg=20,_cache=cache)
+    assert not bounded['fabrication_validated']
+    world=World()
+    world.is_valid=lambda q,b,**kw:False
+    rejected=validate(world=world,rotation_mode='step_angle',rotation_angle_deg=5,
+        angle_ccw_deg=20,angle_cw_deg=20)
+    assert not rejected['fabrication_validated'] and rejected['selected_tcp_rotations']==[]

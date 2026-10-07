@@ -253,3 +253,18 @@ def test_joint_limit_failure_remains_distinct_from_missing_ik():
     out=find_adaptive_stationary_base(**arguments(lambda t,b:[[2.]],joint_ranges=[[-1.,1.]]))
     assert not out['found'].base_planes
     assert out['found'].diagnostics[-1]['reason']=='joint_limits'
+
+
+@pytest.mark.parametrize('mode,cw,expected', [('step_angle',20,True), ('step_angle',15,False), ('off',20,False)])
+def test_all_adaptive_stages_respect_rotation_range(mode,cw,expected):
+    seen=[]
+    def solver(t,b):
+        angle=np.rad2deg(np.arctan2(t.xaxis[1],t.xaxis[0]))
+        seen.append(angle)
+        return [[float(t.origin[0])*.1]] if abs(angle-20)<1e-8 else []
+    options=arguments(solver,rotation_mode=mode,rotation_angle_deg=5,angle_ccw_deg=10,angle_cw_deg=cw)
+    options['probe_rotations']=20  # More probes than bounded orientation samples.
+    out=find_adaptive_stationary_base(**options)
+    assert bool(out['found'].configurations) is expected
+    assert seen and min(seen)>=-10-1e-8 and max(seen)<=cw+1e-8
+    if mode=='off': assert all(abs(a)<1e-8 for a in seen)

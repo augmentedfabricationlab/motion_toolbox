@@ -4,6 +4,21 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.61 - 2026-10-08
+
+- Expose bounded TCP-Z rotation in both Grasshopper base planners with
+  rotation_mode, rotation_angle_deg, angle_ccw_deg and angle_cw_deg. Preserve
+  full-circle defaults; support fixed orientation with off. Bounds are relative
+  to each input target plane and use the existing step-angle sampling semantics.
+- Carry rotation settings through stationary heuristic/adaptive validation and
+  probes, mobile offset repair and straight-line fallbacks. Include settings in
+  diagnostics and distinguish sampled rotations in mobile IK cache keys.
+- Document component inputs and the +/-20 degree example. Add regression coverage
+  for range exclusion, selected TCPs, adaptive probes, mobile repairs/fallbacks,
+  invalid bounds, collision filtering and cached candidate isolation.
+- Validation: all 616 tests passed. Keep integer-valued JSON rotation counts and
+  Grasshopper package-refresh version checks compatible. No dependency changes.
+
 ## 0.1.60 - 2026-10-07
 
 - Apply the mobile shoulder/elbow/wrist branch rule to every stationary path
