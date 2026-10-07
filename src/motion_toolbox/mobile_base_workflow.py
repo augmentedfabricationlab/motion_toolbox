@@ -18,6 +18,7 @@ from .xy_sections import prepare_sections
 from .stationary_region import StationaryRegion
 from .planning import candidates, rotation_offsets
 from .graph import shortest_path
+from .configuration_branch import ConfigurationBranchCheck
 
 
 class _StraightLineGeometry:
@@ -199,35 +200,16 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
         per_layer[first:] = np.minimum(step, durations[:,None]*np.broadcast_to(max_joint_speed,(6,)))
     checked_nodes = {}
     branch_of = getattr(solver, 'configuration_branch', None)
-    branches = [[branch_of(q) for q in rows] for rows in layers] if branch_of else None
-    start_branch = None
-    branch_rejections = Counter()
-    def same_branch(i, a, b):
-        before = start_branch if a < 0 else branches[i-1][a]
-        after = branches[i][b]
-        if before is None or after is None:
-            branch_rejections['ambiguous_configuration_branch'] += 1
-            return False
-        changed = [name for name,x,y in zip(('shoulder','elbow','wrist'),before,after) if x != y]
-        if changed:
-            branch_rejections.update(name+'_branch_change' for name in changed)
-            return False
-        # Same endpoint signs must not hide a full revolution through a boundary.
-        q0 = np.asarray(current_pose if a < 0 else layers[i-1][a])
-        delta = np.asarray(layers[i][b])-q0
-        delta[periodic] = (delta[periodic]+math.pi)%(2*math.pi)-math.pi
-        if any(abs(delta[j]) >= math.pi for j in (2,4)):
-            branch_rejections['branch_boundary_crossing'] += 1
-            return False
-        return True
+    branch_check = ConfigurationBranchCheck(solver, layers, periodic=periodic)
+    branches = branch_check.branches
+    branch_rejections = branch_check.rejections
     def node_valid(i,j):
         nonlocal collision_hits, collision_checks
         if (i,j) in checked_nodes:
             return checked_nodes[i,j]
-        if branches is not None and branches[i][j] is None:
+        if not branch_check.node_valid(i, j):
             if not diagnostics[i]['collision_free']:
                 diagnostics[i]['state'] = 'configuration_branch_rejection'
-            branch_rejections['ambiguous_configuration_branch'] += 1
             checked_nodes[i,j] = False
             return False
         check()
@@ -281,13 +263,15 @@ def validate_base_path(targets, bases, *, solver, world, joint_ranges, periodic,
             initial_failure = world.last_failure or 'Starting configuration collision'
         if branch_of:
             start_branch = branch_of(current_pose)
+            branch_check.start = current_pose
+            branch_check.start_branch = start_branch
             if start_branch is None and initial_failure is None:
                 initial_failure = 'Starting configuration lies on an ambiguous shoulder/elbow/wrist branch boundary'
     if all(len(rows) for rows in layers) and not transitions and initial_failure is None:
         if progress is not None:
             progress(dict(stage='joint_graph',total=len(targets),elapsed_seconds=perf_counter()-started))
         solved=shortest_path(layers,start=current_pose,periodic=periodic,max_step=max_joint_step,
-            edge_valid=same_branch if branches is not None else None,
+            edge_valid=branch_check.edge_valid if branches is not None else None,
             step_limits=per_layer,node_valid=node_valid,stats=graph_stats,count_paths=False,
             node_rejection_group=rejection_group if _complete_collision_layers else None,
             revolute_joints=getattr(solver,'revolute_joints',None),cancel_check=cancel_check)

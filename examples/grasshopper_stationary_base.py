@@ -1,6 +1,8 @@
 """Rhino 8 Python 3: target planes -> one stationary robot footprint plane.
 
 Evaluates automatically on every Grasshopper recompute.
+Validated arm paths retain one shoulder/elbow/wrist branch, including current_pose
+when supplied. Ambiguous branch boundaries are rejected, as in the mobile planner.
 
 Setup
 -----
@@ -239,7 +241,7 @@ try:
     pipeline_names = (
         'motion_toolbox', 'motion_toolbox.execution',
         'motion_toolbox.kinematics.ur', 'motion_toolbox.kinematics.solver', 'motion_toolbox.kinematics.calibrated',
-        'motion_toolbox.graph', 'motion_toolbox.planning',
+        'motion_toolbox.graph', 'motion_toolbox.configuration_branch', 'motion_toolbox.planning',
         'motion_toolbox.robot_adapter',
         'motion_toolbox.base_collision', 'motion_toolbox.collision',
         'motion_toolbox.base_planning', 'motion_toolbox.stationary_region', 'motion_toolbox.adaptive_stationary',
@@ -260,7 +262,8 @@ try:
     stale = stale or not callable(getattr(sys.modules.get('motion_toolbox.execution'), 'check_cancel', None))
     stale = stale or not planner_arguments.issubset(inspect.signature(base_module.find_stationary_base).parameters)
     stale = stale or 'path_count' not in getattr(graph_module.GraphResult, '__dataclass_fields__', {})
-    result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail'}
+    result_fields = {'selected_target_planes', 'initial_state_failure', 'disconnected_detail',
+                     'configuration_branch_check_applied', 'edge_rejection_reasons'}
     stale = stale or not result_fields.issubset(getattr(base_module.BasePlan, '__dataclass_fields__', {}))
     stale = stale or getattr(pipeline[-1], 'STATIONARY_WORKFLOW_VERSION', 0) < 3
     stale = stale or getattr(pipeline[pipeline_names.index('motion_toolbox.collision')], 'COLLISION_API_VERSION', 0) < 12

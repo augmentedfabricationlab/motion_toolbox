@@ -73,7 +73,7 @@ path_sections,section_ids,transition_regions=[],[],[]
 applied_yaw_adjustments_degrees=[]
 status=''
 diagnostics,timings,unreachable_points=[],{},[]
-version='0.1.57'
+version='0.1.60'
 planned_tcp=[]
 started=time.monotonic()
 
@@ -90,7 +90,7 @@ try:
     # Rhino keeps modules alive between recomputes. Refresh dependencies before
     # consumers, including their from-import bindings to older solver functions.
     for module_name in ('execution','kinematics.ur','kinematics.solver','kinematics.calibrated',
-                        'graph','planning','robot_adapter','base_collision','collision','robot_planning',
+                        'graph','configuration_branch','planning','robot_adapter','base_collision','collision','robot_planning',
                         'xy_averaging','xy_smoothing','xy_centerline','xy_offset','xy_sections','mobile_adaptation','mobile_base_workflow'):
         importlib.reload(importlib.import_module('motion_toolbox.'+module_name))
     from motion_toolbox.mobile_base_workflow import plan_mobile_base

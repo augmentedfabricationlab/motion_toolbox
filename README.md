@@ -545,6 +545,15 @@ vertex list in metres as `placement_region`.
 The Grasshopper component samples 24 rotations around each target's local
 Z axis by default (`rotation_steps`), retaining its position and normal. Counts
 are specific to this discrete search, not a continuous-space optimum.
+Stationary UR paths retain one shoulder/elbow/wrist configuration branch,
+including `current_pose` when supplied, using the same checks as mobile planning.
+Ambiguous branch boundaries and full elbow/wrist turns through a boundary are
+rejected. If no connected branch-preserving path exists, configurations are empty
+and `valid`/`fabrication_validated` are false; a reachable base may still be shown.
+Results expose `configuration_branch_check_applied`, `selected_configuration_branch`,
+and `edge_rejection_reasons`. Custom solvers without `configuration_branch(q)`
+retain their existing behavior. `build_path=False` proves reachability only.
+These checks do not validate swept collisions between targets.
 `fast_validation=True` is the default: establish collision-free reachability at
 every target, then validate configurations on proposed shortest paths. Collision
 geometry, placement retries, joint limits and the optimal selected path are

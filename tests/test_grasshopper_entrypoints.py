@@ -413,7 +413,9 @@ def test_stationary_refreshes_cached_planner_and_its_imported_dependencies(gh, m
         collision_check=False))
     assert out['status'].startswith('Found base'), out['status']
     assert base_planning.calculate_partial_trajectory is planning.calculate_partial_trajectory
-    assert base_planning.shortest_path is graph.shortest_path
+    import motion_toolbox.configuration_branch as branch_planning
+    assert base_planning.shortest_branch_path is branch_planning.shortest_branch_path
+    assert branch_planning.shortest_path is graph.shortest_path
     assert planning.shortest_path is graph.shortest_path
 
 

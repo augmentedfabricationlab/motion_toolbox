@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 from .geometry import Plane, as_plane
 from .planning import candidates, calculate_partial_trajectory, rotation_offsets
-from .graph import shortest_path
+from .configuration_branch import shortest_branch_path
 from .execution import high_qos, check_cancel
 
 
@@ -144,6 +144,9 @@ class BasePlan:
     selected_tcp_rotations: list = field(default_factory=list)
     initial_state_failure: Optional[str] = None
     disconnected_detail: Optional[dict] = None
+    configuration_branch_check_applied: bool = False
+    selected_configuration_branch: Optional[list] = None
+    edge_rejection_reasons: dict = field(default_factory=dict)
 
     @property
     def base_plane(self):
@@ -198,6 +201,8 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
     assumed initial configuration or approach transition.
     Heuristic fast_validation skips unused collision alternatives and leaves
     counts incomplete. Explicit count_paths=True forces exhaustive validation.
+    Solvers exposing configuration_branch must keep one shoulder/elbow/wrist
+    branch, including current_pose. Ambiguous branch boundaries are rejected.
     """
     if not targets:
         raise ValueError('At least one target required for placement search')
@@ -245,7 +250,7 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
                     return False
                 q0 = current_pose if i == 0 else layers[i-1][a]
                 return transition_check is None or transition_check(q0, base, layers[i][b], base)
-        solved = shortest_path(layers, start=current_pose,
+        solved, branch_info = shortest_branch_path(layers, solver=ik_solver, start=current_pose,
             max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
             weights=options.get('weights'), edge_valid=edge,
             revolute_joints=getattr(ik_solver, 'revolute_joints', None))
@@ -259,6 +264,9 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
             solution_counts_before_filters=raw, solution_counts=counts,
             reachable_targets=sum(n > 0 for n in counts), path_count=solved.path_count,
             reason=reason, ik_checked=True, **geometry))
+        best.diagnostics[-1].update(branch_info)
+        if best_rank is None:
+            _record_branch_check(best, branch_info)
         standoff = geometry.get('standoff', 0.0)
         rank = (-solved.path_count, -standoff, solved.cost) if objective == 'max_paths' else (solved.cost,)
         if solved.configurations and (best_rank is None or rank < best_rank):
@@ -268,6 +276,7 @@ def find_stationary_base(targets, base_candidates, current_pose=None, *, ik_solv
             best.path_count = solved.path_count
             best.standoff = standoff
             best.max_target_distance = geometry.get('max_target_distance', 0.0)
+            _record_branch_check(best, branch_info)
     return best
 
 
@@ -398,7 +407,7 @@ def _stationary_disconnection(solved, layers, start, options):
                 [layers[i-1][j] for j in solved.reachable_indices] if i else [])
     periodic = np.zeros(n, dtype=bool) if options.get('periodic') is None else np.asarray(options['periodic'], dtype=bool)
     best = None
-    for q in previous:
+    for q in previous if layers[i] else []:
         delta = np.asarray(layers[i])-q
         delta[:, periodic] = (delta[:, periodic]+np.pi) % (2*np.pi)-np.pi
         ratios = np.max(np.abs(delta)/np.maximum(limits, 1e-15), axis=1)
@@ -409,6 +418,17 @@ def _stationary_disconnection(solved, layers, start, options):
         minimum_joint_step_limit_ratio=best[0] if best else None,
         joint_deltas_at_nearest_pair=best[1] if best else None,
         reason='No connected path under configuration and joint-step/speed constraints')
+
+
+def _record_branch_check(result, info, diagnostic=None):
+    for name, value in info.items():
+        setattr(result, name, value)
+    if diagnostic is not None:
+        diagnostic.update(info)
+        if not result.configurations and info['edge_rejection_reasons']:
+            diagnostic['reason'] = 'configuration_branch_disconnected'
+    if result.disconnected_detail is not None:
+        result.disconnected_detail['configuration_branch_rejections'] = info['edge_rejection_reasons']
 
 
 def _validate_stationary_fast(targets, base, start, solver, collision, geometry, build_path, options):
@@ -490,7 +510,7 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
                 return rejected
             graph_layers = [[layers[i][j] for j in ids] for i, ids in enumerate(indices)]
             _stationary_progress(options, 'joint_graph', total=len(targets))
-            solved = shortest_path(graph_layers, start=start,
+            solved, branch_info = shortest_branch_path(graph_layers, solver=solver, start=start,
                 max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
                 weights=options.get('weights'), count_paths=False,
                 revolute_joints=getattr(solver, 'revolute_joints', None),
@@ -510,6 +530,7 @@ def _validate_stationary_fast(targets, base, start, solver, collision, geometry,
             result.path_search_count = 1
             diagnostic.update(path_checked=True, cost=solved.cost,
                 reason='complete' if solved.configurations else 'joint_step_disconnected')
+            _record_branch_check(result, branch_info, diagnostic)
     diagnostic['collision_checks'] = sum(d['collision_checks'] for d in details.values())
     return result
 
@@ -587,7 +608,7 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
     if best_layers is not None and build_path:
         _stationary_progress(options, 'joint_graph', total=len(targets))
         path_started = perf_counter()
-        solved = shortest_path(best_layers, start=current_pose,
+        solved, branch_info = shortest_branch_path(best_layers, solver=solver, start=current_pose,
             max_step=options.get('max_joint_step', 2.5), periodic=options.get('periodic'),
             weights=options.get('weights'), count_paths=options.get('count_paths', True),
             revolute_joints=getattr(solver, 'revolute_joints', None),
@@ -603,4 +624,5 @@ def _find_stationary_base_by_options(targets, bases, current_pose, solver, colli
         best.path_search_count = 1
         selected.update(path_checked=True, path_count=solved.path_count, cost=solved.cost,
             reason='complete' if solved.configurations else 'joint_step_disconnected')
+        _record_branch_check(best, branch_info, selected)
     return best

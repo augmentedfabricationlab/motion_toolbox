@@ -46,7 +46,10 @@ def _status(found, count, build_path, collision_check, speed_checked):
             text += ' Joint path not requested (build_path=False); planned_tcp is empty.'
         elif not found.configurations:
             detail = found.disconnected_detail
-            text += ' Joint path blocked by max_joint_step{}.'.format(' or max_joint_speed' if speed_checked else '')
+            if found.edge_rejection_reasons:
+                text += ' Joint path blocked; shoulder/elbow/wrist configuration changes or branch boundaries were rejected.'
+            else:
+                text += ' Joint path blocked by max_joint_step{}.'.format(' or max_joint_speed' if speed_checked else '')
             if detail:
                 source = 'start' if detail['from_target'] < 0 else 'target {}'.format(detail['from_target']+1)
                 text += ' Disconnected from {} to target {}.'.format(source, detail['to_target']+1)
@@ -299,6 +302,9 @@ def plan_stationary_base(robot, target_planes, *, candidate_planes=(), units_to_
         speed_checked=bool(speed is not None and found.path_search_count),
         collision_check_applied=bool(collision_check), check_edges=False,
         disconnected_detail=found.disconnected_detail, initial_state_failure=found.initial_state_failure,
+        configuration_branch_check_applied=found.configuration_branch_check_applied,
+        selected_configuration_branch=found.selected_configuration_branch,
+        edge_rejection_reasons=found.edge_rejection_reasons,
         unreachable_points=[] if found.base_planes else sorted({i for d in found.diagnostics for i in d.get('unreachable_points', [])}),
         target_diagnostics=found.diagnostics, effective_settings=settings, loaded_modules=fingerprints,
         research_run=str(run.path) if run else None, timings=timings,

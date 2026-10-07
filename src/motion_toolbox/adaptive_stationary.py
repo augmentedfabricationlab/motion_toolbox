@@ -12,6 +12,7 @@ from .geometry import Plane, as_plane
 from .stationary_region import StationaryRegion
 from .planning import candidates, rotation_offsets, _in_ranges
 from .base_planning import BasePlan, _validate_stationary_fast, _collision_failure
+from .configuration_branch import shortest_branch_path
 from .execution import check_cancel, high_qos
 from .recording import recorded
 
@@ -82,6 +83,7 @@ class _Evaluation:
         self.ik_cache,self.collision_cache={},{}
         self.last_failure=None
         self.revolute_joints=getattr(solver,'revolute_joints',None)
+        self.configuration_branch=getattr(solver,'configuration_branch',None)
         self.stats=dict(ik_calls=0,ik_cache_hits=0,collision_checks=0,collision_cache_hits=0,
                         ik_seconds=0.,collision_seconds=0.)
 
@@ -295,7 +297,6 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
         if not critical and not critical_targets:return True
         bottleneck_checks+=1
         if bottleneck_checks%10==1:report('adaptive_bottlenecks',checked=bottleneck_checks)
-        from .graph import shortest_path
         base=row['base']
         for index in critical_targets:
             qs,_,_=candidates(targets[index],base,evaluation,offsets,None,joint_ranges)
@@ -312,7 +313,7 @@ def find_adaptive_stationary_base(targets, *, ik_solver, arm_in_base,
                 return checked[key]
             limits=max_joint_step if step_limits is None else np.minimum(max_joint_step,step_limits[right])
             graph_stats={}
-            result=shortest_path([a,b],max_step=limits,periodic=periodic,count_paths=False,
+            result,_=shortest_branch_path([a,b],solver=evaluation,max_step=limits,periodic=periodic,count_paths=False,
                 node_valid=valid,revolute_joints=evaluation.revolute_joints,
                 node_rejection_group=lambda i,j:[k for k in range(len((a,b)[i])) if not valid(i,k)],
                 cancel_check=lambda:check_cancel(cancel_check),stats=graph_stats)

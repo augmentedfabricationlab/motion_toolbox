@@ -44,12 +44,29 @@ def test_named_start_and_output_fixed_joints(fast):
     result = workflow.plan_stationary_base(**args, current_pose=start, scene=scene,
         fast_validation=fast, fixed_joint_values={'lift': .3})
     assert result['valid'] and result['path_complete']
+    assert result['configuration_branch_check_applied']
+    assert len(result['selected_configuration_branch']) == 3
     assert scene.fixed['lift'] == .3 and not scene.closed
     for row, config in zip(result['configurations'], result['configuration_objects']):
         assert config['lift'] == .3
         assert config.joint_names == ['lift']+names
         np.testing.assert_allclose([config[n] for n in names], row)
     assert result['effective_settings']['current_pose'] == q
+
+
+@pytest.mark.parametrize('strategy,fast', [('heuristic', True), ('heuristic', False), ('adaptive', True)])
+def test_branch_boundary_start_returns_no_validated_workflow_path(strategy, fast, monkeypatch):
+    from motion_toolbox import adaptive_stationary
+    monkeypatch.setattr(adaptive_stationary, 'footprint_clearance', lambda world, targets: None)
+    args, _, names = inputs()
+    result = workflow.plan_stationary_base(**args, current_pose=[0.]*6, scene=Scene(names),
+        search_strategy=strategy, fast_validation=fast)
+    assert not result['valid'] and not result['fabrication_validated'] and not result['path_complete']
+    assert result['configurations'] == result['configuration_objects'] == result['selected_target_planes'] == []
+    assert result['configuration_branch_check_applied']
+    assert result['edge_rejection_reasons']['ambiguous_configuration_branch'] > 0
+    assert 'boundary' in result['initial_state_failure']
+    assert 'branch boundaries' in result['status']
 
 
 @pytest.mark.parametrize('bad', [[float('nan')]*6, [0.]*5, [7.]*6])

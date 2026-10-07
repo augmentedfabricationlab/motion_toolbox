@@ -4,6 +4,25 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.60 - 2026-10-07
+
+- Apply the mobile shoulder/elbow/wrist branch rule to every stationary path
+  search, including heuristic fast/exhaustive validation and adaptive finalists
+  and bottlenecks. Include a supplied starting configuration; reject ambiguous
+  branch boundaries and full elbow/wrist turns through a boundary. Return no
+  validated trajectory if no connected branch-preserving path survives.
+- Share the branch checks with mobile planning and report the selected branch,
+  whether checks were applied, and rejection reasons in stationary results.
+  Preserve exact graph indices, path counts, collision callbacks and TCP selection.
+  Custom solvers without configuration_branch retain their previous behavior;
+  reachability-only mode and swept-collision policy are unchanged.
+- Refresh the shared dependency in Grasshopper and document stationary outputs.
+  No dependency changes.
+- Validation: the full 590-test suite passes; seven subsequently added lazy
+  collision-replanning cases also pass (all 80 stationary branch tests pass).
+  The synthetic stationary/PyBullet benchmark retains identical fast/exhaustive
+  paths and costs for clear and collision-heavy cases. Live Rhino was not tested.
+
 ## 0.1.59 - 2026-10-07
 
 - Add `grasshopper_import_result.py` and `load_stationary_result` for offline

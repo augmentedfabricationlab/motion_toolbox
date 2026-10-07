@@ -127,10 +127,11 @@ def test_invalid_guess_inputs(targets, kwargs):
 
 def test_configuration_ranking_builds_only_one_path_and_reuses_winner_ik(monkeypatch):
     import motion_toolbox.base_planning as planning
+    import motion_toolbox.configuration_branch as branch_planning
     targets = [Plane.world_xy()] * 3
     bases = [Plane((x,0,0),(1,0,0),(0,1,0)) for x in (0,1,2)]
     calls, searches = [], []
-    original = planning.shortest_path
+    original = branch_planning.shortest_path
     def shortest(layers, **kwargs):
         searches.append(layers)
         assert kwargs.get('edge_valid') is None
@@ -138,7 +139,7 @@ def test_configuration_ranking_builds_only_one_path_and_reuses_winner_ik(monkeyp
     def ik(t,b):
         calls.append(b.origin[0])
         return [[0],[1]] if b.origin[0] == 1 else [[0]]
-    monkeypatch.setattr(planning, 'shortest_path', shortest)
+    monkeypatch.setattr(branch_planning, 'shortest_path', shortest)
     result = planning.find_stationary_base(targets, bases, ik_solver=ik, objective='ik_options')
     assert result.base_plane.origin[0] == 1
     assert result.ik_option_count == 8
@@ -149,13 +150,14 @@ def test_configuration_ranking_builds_only_one_path_and_reuses_winner_ik(monkeyp
 
 def test_configuration_ranking_stops_at_first_unreachable_target_and_can_skip_path(monkeypatch):
     import motion_toolbox.base_planning as planning
+    import motion_toolbox.configuration_branch as branch_planning
     calls = []
     def ik(t,b):
         calls.append(b.origin[0])
         return [] if b.origin[0] == 0 else [[0]]
     def forbidden(*args, **kwargs):
         raise AssertionError('Path search must not run')
-    monkeypatch.setattr(planning, 'shortest_path', forbidden)
+    monkeypatch.setattr(branch_planning, 'shortest_path', forbidden)
     result = planning.find_stationary_base([Plane.world_xy()]*3,
         [Plane.world_xy(), Plane((1,0,0),(1,0,0),(0,1,0))], ik_solver=ik,
         objective='ik_options', build_path=False)
