@@ -29,6 +29,23 @@ packages in Rhino 8's Python 3 environment to use the APIs from Grasshopper. Thi
 is not an IronPython 2 package. `compas-fab` is constrained to 1.x, which provides
 the Robot/Tool interface used by the existing `MobileRobot`; 2.x has a different API.
 
+## IK only, matching a starting configuration
+
+Paste [examples/grasshopper_ik_only.py](examples/grasshopper_ik_only.py) into a
+Rhino 8 Python 3 component. Connect `robot` (Item), `current_pose` (Item, named
+COMPAS Configuration), and `target_planes` (List, Plane). For six raw arm angles
+in radians, change `current_pose` to List access. Set outputs to `configurations`,
+`failed_indices`, and `status`. The header lists optional inputs.
+
+Each plane is solved unchanged at `robot.BCF`, using the active tool and offline
+arm mounting. Each output matches the starting shoulder/elbow/wrist branch and
+is chosen nearest the original starting angles, independently of other targets.
+Equivalent full turns stay within the robot's joint limits. A failed target
+returns `None` at its original list position and its index in `failed_indices`.
+There is no rotation sampling, graph search, collision or transition checking;
+the outputs are IK matches rather than a validated motion path. Keep the robot's
+offline lift/mounting state consistent with the supplied starting configuration.
+
 ## Plan TCP targets at prescribed base positions
 
 For a ready-to-paste Rhino 8 Python 3 component, use

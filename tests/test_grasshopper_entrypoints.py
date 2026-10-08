@@ -36,6 +36,87 @@ def robot_fixture():
     return robot, q, targets, ['j'+str(i) for i in range(6)]
 
 
+def test_ik_only_preserves_planes_branch_and_named_start():
+    from compas_robots import Configuration
+    from motion_toolbox.kinematics.solver import URKinematics
+    robot, q, targets, names = robot_fixture()
+    start = Configuration([.2]+list(reversed(q)), [2]+[0]*6, ['lift']+list(reversed(names)))
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(
+        robot=robot, current_pose=start, target_planes=targets, arm_in_base=Plane.world_xy()))
+    assert out['status'].startswith('Matched 3/3'), out['status']
+    assert out['failed_indices'] == []
+    solver = URKinematics()
+    for target, config in zip(targets, out['configurations']):
+        values = dict(zip(config.joint_names, config.joint_values))
+        actual = [values[n] for n in names]
+        assert values['lift'] == .2
+        assert solver.configuration_branch(actual) == solver.configuration_branch(q)
+        assert np.allclose(forward_kinematics(actual).matrix, target.matrix, atol=1e-7)
+
+
+def test_ik_only_keeps_failure_slots_and_solves_later_targets():
+    robot, q, targets, _ = robot_fixture()
+    targets.insert(1, Plane((100, 0, 0), (1, 0, 0), (0, 1, 0)))
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(
+        robot=robot, current_pose=q, target_planes=targets, arm_in_base=Plane.world_xy()))
+    assert out['status'].startswith('Matched 3/4'), out['status']
+    assert out['failed_indices'] == [1]
+    assert out['configurations'][1] is None
+    assert out['configurations'][3] is not None
+
+
+def test_ik_only_uses_world_base_tcp_and_input_units():
+    from motion_toolbox.geometry import as_plane
+    robot, q, _, _ = robot_fixture()
+    robot.BCF = Frame((2, 3, 0), (0, 1, 0), (-1, 0, 0))
+    robot._attached_tools['arm'].frame = Frame((.1, -.2, .3), (0, 1, 0), (0, 0, 1))
+    mount = Plane((0, 0, .8), (1, 0, 0), (0, 1, 0))
+    world = as_plane(robot.BCF).matrix @ mount.matrix @ forward_kinematics(q).matrix @ as_plane(robot._attached_tools['arm'].frame).matrix
+    millimetres = world.copy()
+    millimetres[:3, 3] *= 1000
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(
+        robot=robot, current_pose=q, target_planes=[Plane.from_matrix(millimetres)],
+        arm_in_base=Plane((0, 0, 800), (1, 0, 0), (0, 1, 0)), model_units_to_metres=.001))
+    assert out['status'].startswith('Matched 1/1'), out['status']
+    assert np.allclose(out['configurations'][0].joint_values[-6:], q, atol=1e-7)
+
+
+def test_ik_only_keeps_full_turn_near_start_and_is_target_independent():
+    robot, q, _, names = robot_fixture()
+    for joint in robot.model.get_configurable_joints():
+        if joint.name in names:
+            joint.limit.lower, joint.limit.upper = -2*np.pi, 2*np.pi
+    q[-1] = 3.2
+    target_q = q[:-1]+[3.25]
+    targets = [forward_kinematics(q), forward_kinematics(target_q)]
+    inputs = dict(robot=robot, current_pose=q, target_planes=targets, arm_in_base=Plane.world_xy())
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=inputs)
+    assert out['status'].startswith('Matched 2/2'), out['status']
+    assert np.allclose(out['configurations'][1].joint_values[-6:], target_q, atol=1e-7)
+    reversed_out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(inputs, target_planes=targets[::-1]))
+    assert np.allclose(reversed_out['configurations'][0].joint_values, out['configurations'][1].joint_values)
+
+
+def test_ik_only_rejects_ambiguous_start():
+    robot, q, targets, _ = robot_fixture()
+    q[4] = 0.
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(
+        robot=robot, current_pose=q, target_planes=targets, arm_in_base=Plane.world_xy()))
+    assert 'ambiguous IK branch' in out['status']
+    assert out['configurations'] == []
+
+
+def test_ik_only_does_not_escape_joint_limits():
+    robot, q, targets, names = robot_fixture()
+    for name, value in zip(names, q):
+        joint = robot.model.get_joint_by_name(name)
+        joint.limit.lower, joint.limit.upper = value-.001, value+.001
+    out = runpy.run_path(str(EXAMPLES/'grasshopper_ik_only.py'), init_globals=dict(
+        robot=robot, current_pose=q, target_planes=targets, arm_in_base=Plane.world_xy()))
+    assert out['status'].startswith('Matched 1/3'), out['status']
+    assert out['failed_indices'] == [1, 2]
+
+
 def test_stationary_component_returns_one_base_and_complete_path(gh):
     robot, q, targets, names = robot_fixture()
     inputs = dict(robot=robot, current_pose=q, target_planes=targets,

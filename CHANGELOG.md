@@ -4,6 +4,21 @@ Notable changes by package version, newest first. Historical entries were
 reconstructed from Git commits and `pyproject.toml`; dates are commit dates,
 not evidence of a published release. Commit references identify the source.
 
+## 0.1.62 - 2026-10-08
+
+- Add a ready-to-paste Grasshopper IK-only example. Solve unchanged TCP planes
+  independently on the starting shoulder/elbow/wrist branch, choosing the nearest
+  in-limit joint representatives. Accept named starting Configurations or six
+  arm angles, preserve failed target slots, and return named Configurations.
+- Use the robot's fixed footprint, active tool and offline mounting/calibration.
+  No rotation sampling, graph search, collision or transition checks. Document
+  inputs, outputs and the distinction from a validated motion path.
+- Add entry-point regression coverage for frames/units, named configurations,
+  branch matching, failure slots, full turns, joint limits and singular starts.
+  Validation: all 65 Grasshopper entry-point tests passed (Python test harness;
+  Rhino UI not exercised). No dependency changes or changes to the existing
+  planning algorithms.
+
 ## 0.1.61 - 2026-10-08
 
 - Expose bounded TCP-Z rotation in both Grasshopper base planners with

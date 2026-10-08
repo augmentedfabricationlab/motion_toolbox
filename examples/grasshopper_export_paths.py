@@ -70,7 +70,7 @@ def _bool_input(name, default):
 tcp_file, base_file, export_folder = None, None, None
 time_seconds, diagnostics = [], []
 duration_seconds, result = None, None
-status, version = '', '0.1.61'
+status, version = '', '0.1.62'
 try:
     source = _input('toolbox_src')
     script_file = globals().get('__file__')
